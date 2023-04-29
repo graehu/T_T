@@ -122,6 +122,8 @@ def editor_find(event=None):
     palette.bind("<Return>", lambda event: find_text())
     palette.bind("<Shift-Return>", lambda event: find_text(False))
 
+
+
 root.title("T_T")
 root.bind("<Control-f>", editor_find)
 root.bind("<Control-s>", save_file)
@@ -129,13 +131,16 @@ root.bind("<Control-o>", open_file)
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Escape>", lambda x: text_box.focus_set())
 
-text_box = tk.Text(root, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Courier', 15), foreground=TextCol.fg, background=TextCol.bg)
+text_box = tk.Text(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Courier', 15), foreground=TextCol.fg, background=TextCol.bg)
 
 text_box.bind("<Control-a>", select_all_editor)
 text_box.bind("<Control-f>", editor_find)
 text_box.pack(expand=True, fill="both")
 
-palette = tk.Entry(root, width=60)
+separator = tk.Frame(root, bg=colors["DARK_GRAY"], height=1, bd=0)
+separator.pack(fill="x")
+
+palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Courier', 15), highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
 palette.pack(fill="x")
