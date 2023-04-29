@@ -1,8 +1,7 @@
 import re
 import tkinter as tk
-import idlelib.colorizer as ic
-import idlelib.percolator as ip
 from tkinter.filedialog import asksaveasfilename, askopenfilename
+
 
 colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
           "GREEN": "#00FF00", "BLUE": "#0000FF", "YELLOW": "#FFFF00",
@@ -19,7 +18,6 @@ colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
 }
 
 
-
 class TextCol:
     fg = colors["LIGHT_GRAY"]
     bg =  colors["DARKER_GRAY"]
@@ -29,7 +27,6 @@ class TextCol:
     builtin = colors["GOLD"]
     string = colors["DARK_GREEN"]
     definition = colors["LIGHT_BLUE"]
-
 
 
 class Py:
@@ -48,20 +45,61 @@ class Py:
     PROG      = rf"{KEYWORD}|{BUILTIN}|{EXCEPTION}|{TYPES}|{COMMENT}|{DOCSTRING}|{STRING}|{SYNC}|{INSTANCE}|{DECORATOR}|{NUMBER}|{CLASSDEF}"
 
 
+class Tagger:
+    regex: re = None
+    tags = {}
+    
+    def __init__(self, tags, regex):
+        self.regex = re.compile(regex, re.S)
+        self.tags = tags
 
-cdg = ic.ColorDelegator()
-cdg.prog = re.compile(Py.PROG, re.S)
-cdg.idprog = re.compile(r'\s+(\w+)', re.S)
+    def update(self, text: tk.Text, start="1.0", end=tk.END):
+        
+        for tag in text.tag_names():
+            if tag in [tk.SEL]: continue
+            text.tag_remove(tag, start, end)
+        
+        for match in self.regex.finditer(text.get(start, end)):
+            groups = {k:v for k,v in match.groupdict().items() if v}
+            for k in groups:
+                sp_start, sp_end = match.span(k)
+                sp_start = f"{start} + {sp_start}c"
+                sp_end = f"{start} + {sp_end}c"
+                text.tag_add(k, sp_start, sp_end)
 
-cdg.tagdefs['MYGROUP'] = {'foreground': '#7F7F7F', 'background': TextCol.bg}
-cdg.tagdefs[tk.SEL] = {'foreground': TextCol.fg, 'background': TextCol.selected}
-cdg.tagdefs[tk.INSERT] = {'foreground': TextCol.fg, 'background': TextCol.selected}
-# These five lines are optional. If omitted, default colours are used.
-cdg.tagdefs['COMMENT'] = {'foreground': TextCol.comment, 'background': TextCol.bg}
-cdg.tagdefs['KEYWORD'] = {'foreground': TextCol.keyword, 'background': TextCol.bg}
-cdg.tagdefs['BUILTIN'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
-cdg.tagdefs['STRING'] = {'foreground': TextCol.string, 'background': TextCol.bg}
-cdg.tagdefs['DEFINITION'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
+
+class EventText(tk.Text):
+    def __init__(self, *args, **kwargs):
+        """A text widget that report on internal widget commands"""
+        tk.Text.__init__(self, *args, **kwargs)
+        self._orig = self._w + "_orig"
+        self.tk.call("rename", self._w, self._orig)
+        self.tk.createcommand(self._w, self._proxy)
+
+    def _proxy(self, command, *args):
+        cmd = (self._orig, command) + args
+        result = self.tk.call(cmd)
+        if command in ("insert", "delete", "replace"):
+            self.event_generate("<<TextModified>>")
+        
+        if command in ("yview", "xview"):
+            self.event_generate("<<ViewUpdated>>")
+
+        return result
+
+
+tags = {}
+tags[tk.SEL] = {'foreground': TextCol.fg, 'background': TextCol.selected}
+tags['COMMENT'] = {'foreground': TextCol.comment, 'background': TextCol.bg}
+tags['CLASSDEF'] = {'foreground': TextCol.string, 'background': TextCol.bg}
+tags['KEYWORD'] = {'foreground': TextCol.keyword, 'background': TextCol.bg}
+tags['BUILTIN'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
+tags['STRING'] = {'foreground': TextCol.string, 'background': TextCol.bg}
+tags['DEFINITION'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
+
+for k in tags:
+    tags[k].update({"selectforeground": tags[k]["foreground"]})
+    tags[k].update({"selectbackground": tags[tk.SEL]["background"]})
 
 current_file_path = None
 root = tk.Tk()
@@ -72,8 +110,9 @@ def save_file(event=None):
         current_file_path = asksaveasfilename(defaultextension=".txt")
         if not current_file_path:
             return
+    
     with open(current_file_path, "w") as output_file:
-        text = text_box.get(1.0, tk.END)
+        text = editor.get(1.0, tk.END)
         output_file.write(text)
 
 
@@ -83,45 +122,61 @@ def open_file(event=None):
     file_path = askopenfilename()
     if not file_path:
         return
+    
     current_file_path = file_path
-    text_box.delete(1.0, tk.END)
+    editor.delete(1.0, tk.END)
     with open(current_file_path, "r") as input_file:
         text = input_file.read()
-        text_box.insert(tk.END, text)
+        editor.insert(tk.END, text)
     root.title(current_file_path)
 
 
-def select_all_editor(event=None):
-    text_box.tag_add(tk.SEL, "1.0", tk.END)
-    text_box.mark_set(tk.INSERT, "1.0")
-    text_box.see(tk.INSERT)
+def editor_select_all(event=None):
+    editor.tag_add(tk.SEL, "1.0", tk.END)
+    editor.mark_set(tk.INSERT, "1.0")
+    editor.see(tk.INSERT)
     return 'break'
 
 
-def editor_find(event=None):
-    palette.focus_set()
-    def find_text(forward = True):
-        text = palette.get()
-        if text:
-            start = text_box.index("insert")
-            stop = (tk.END if forward else "1.0")
-            if not forward: start += f"- {len(text)}c"
-            pos = text_box.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
-            if not pos:
-                start = "1.0" if forward else tk.END
-                pos = text_box.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
-            
-            if pos:
-                text_box.tag_remove(tk.SEL, "1.0", tk.END)
-                end_pos = f"{pos}+{len(text)}c"
+def editor_find_text(text, forward = True):
+    if text:
+        start = editor.index(tk.INSERT)
+        stop = (tk.END if forward else "1.0")
+        if not forward: start += f"- {len(text)}c"
+        pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
 
-                text_box.tag_add(tk.SEL, pos, end_pos)
-                text_box.mark_set(tk.INSERT, end_pos)
-                text_box.see(tk.INSERT)
+        if not pos:
+            start = "1.0" if forward else tk.END
+            pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
         
-    palette.bind("<Return>", lambda event: find_text())
-    palette.bind("<Shift-Return>", lambda event: find_text(False))
+        if pos:
+            editor.tag_remove(tk.SEL, "1.0", tk.END)
+            end_pos = f"{pos}+{len(text)}c"
+            editor.tag_add(tk.SEL, pos, end_pos)
+            editor.mark_set(tk.INSERT, end_pos)
+            editor.see(tk.INSERT)
+    return 'break'
 
+text_modified = False
+def editor_view_changed(event=None):
+    global text_modified
+    if text_modified:
+        text_modified = False
+        tagger.update(editor)
+
+
+def editor_modified(event=None):
+    global text_modified
+    text_modified = True
+    start = editor.index("@0,0")
+    end = editor.index(f"@{editor.winfo_width()},{editor.winfo_width()}")
+    tagger.update(editor, start, end)
+
+
+def editor_find(event=None):
+    palette.focus_set()    
+    palette.bind("<Return>", lambda event: editor_find_text(palette.get()))
+    palette.bind("<Shift-Return>", lambda event: editor_find_text(palette.get(), False))
 
 
 root.title("T_T")
@@ -129,23 +184,25 @@ root.bind("<Control-f>", editor_find)
 root.bind("<Control-s>", save_file)
 root.bind("<Control-o>", open_file)
 root.bind("<Control-w>", lambda x: root.quit())
-root.bind("<Escape>", lambda x: text_box.focus_set())
+root.bind("<Escape>", lambda x: editor.focus_set())
 
-text_box = tk.Text(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Courier', 15), foreground=TextCol.fg, background=TextCol.bg)
+editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Courier', 15), foreground=TextCol.fg, background=TextCol.bg)
+tagger = Tagger(tags, Py.PROG)
+editor.bind("<<TextModified>>", editor_modified)
+editor.bind("<<ViewUpdated>>", editor_view_changed)
+editor.bind("<Control-a>", editor_select_all)
+editor.bind("<Control-f>", editor_find)
 
-text_box.bind("<Control-a>", select_all_editor)
-text_box.bind("<Control-f>", editor_find)
-text_box.pack(expand=True, fill="both")
+for k in tags:
+    editor.tag_configure(k, tags[k])
+
+editor.pack(expand=True, fill="both")
 
 separator = tk.Frame(root, bg=colors["DARK_GRAY"], height=1, bd=0)
 separator.pack(fill="x")
-
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Courier', 15), highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
 palette.pack(fill="x")
-
-
-ip.Percolator(text_box).insertfilter(cdg)
 
 root.mainloop()
