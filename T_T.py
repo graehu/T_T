@@ -69,6 +69,7 @@ class Tagger:
 
 
 class EventText(tk.Text):
+    event_args = None
     def __init__(self, *args, **kwargs):
         """A text widget that report on internal widget commands"""
         tk.Text.__init__(self, *args, **kwargs)
@@ -80,6 +81,7 @@ class EventText(tk.Text):
         cmd = (self._orig, command) + args
         result = self.tk.call(cmd)
         if command in ("insert", "delete", "replace"):
+            self.event_args = args
             self.event_generate("<<TextModified>>")
         
         if command in ("yview", "xview"):
@@ -157,19 +159,22 @@ def editor_find_text(text, forward = True):
             editor.see(tk.INSERT)
     return 'break'
 
-text_modified = False
-def editor_view_changed(event=None):
-    global text_modified
-    if text_modified:
-        text_modified = False
-        tagger.update(editor)
-
-
 def editor_modified(event=None):
-    global text_modified
-    text_modified = True
-    start = editor.index("@0,0")
-    end = editor.index(f"@{editor.winfo_width()},{editor.winfo_width()}")
+    args = editor.event_args
+    
+    start = end = editor.index(tk.INSERT)
+    line, char = map(int, start.split("."))
+    if len(args) > 1:
+        start = f"{line-1}.{0}"
+        start += f" - {len(args[-1])}c"
+        end = f"{line+1}.{0}"
+    else:
+        start = f"{line-1}.{0}"
+        end = f"{line+1}.{0}"
+    # end += f" + {len(args[-1])}c"
+    print((start, end))
+    # start = editor.index("@0,0")
+    # end = editor.index(f"@{editor.winfo_width()},{editor.winfo_width()}")
     tagger.update(editor, start, end)
 
 
@@ -177,6 +182,34 @@ def editor_find(event=None):
     palette.focus_set()    
     palette.bind("<Return>", lambda event: editor_find_text(palette.get()))
     palette.bind("<Shift-Return>", lambda event: editor_find_text(palette.get(), False))
+
+
+def editor_delete_word_backwards(event=None):
+    cursor_position = editor.index(tk.INSERT)
+    editor.tag_add(tk.SEL, f"{cursor_position} wordstart", cursor_position)
+    editor.delete(tk.SEL_FIRST, tk.SEL_LAST)
+
+
+def palette_delete_word_backwards(event=None):
+    cursor_pos = palette.index(tk.INSERT)
+    if cursor_pos == "0.0":
+        return 'break'
+    current_char = palette.get(cursor_pos)
+    # If the cursor is currently at the end of a word, delete the whole word
+    if current_char == " ":
+        palette.delete(cursor_pos)
+    # Otherwise, delete characters until a space is found or the beginning of the palette is reached
+    else:
+        while cursor_pos != "0.0":
+            cursor_pos = palette.index(f"{cursor_pos} - 1c")
+            if palette.get(cursor_pos) == " ":
+                palette.delete(f"{cursor_pos}+1c", tk.INSERT)
+                break
+            if cursor_pos == "0.0":
+                palette.delete(0, tk.INSERT)
+                break
+    return 'break'
+
 
 
 root.title("T_T")
@@ -189,9 +222,9 @@ root.bind("<Escape>", lambda x: editor.focus_set())
 editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Courier', 15), foreground=TextCol.fg, background=TextCol.bg)
 tagger = Tagger(tags, Py.PROG)
 editor.bind("<<TextModified>>", editor_modified)
-editor.bind("<<ViewUpdated>>", editor_view_changed)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-f>", editor_find)
+editor.bind("<Control-BackSpace>", editor_delete_word_backwards)
 
 for k in tags:
     editor.tag_configure(k, tags[k])
@@ -203,6 +236,8 @@ separator.pack(fill="x")
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Courier', 15), highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
+palette.bind("<Control-BackSpace>", palette_delete_word_backwards)
+
 palette.pack(fill="x")
 
 root.mainloop()
