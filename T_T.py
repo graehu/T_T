@@ -159,6 +159,7 @@ def editor_find_text(text, forward = True):
             editor.see(tk.INSERT)
     return 'break'
 
+
 def editor_modified(event=None):
     args = editor.event_args
     
@@ -167,12 +168,14 @@ def editor_modified(event=None):
     if len(args) > 1:
         start = f"{line-1}.{0}"
         start += f" - {len(args[-1])}c"
+        start = editor.index(start)
+        start = f"{start.split('.')[0]}.0"
         end = f"{line+1}.{0}"
     else:
         start = f"{line-1}.{0}"
         end = f"{line+1}.{0}"
     # end += f" + {len(args[-1])}c"
-    print((start, end))
+    # print((start, end))
     # start = editor.index("@0,0")
     # end = editor.index(f"@{editor.winfo_width()},{editor.winfo_width()}")
     tagger.update(editor, start, end)
@@ -184,32 +187,28 @@ def editor_find(event=None):
     palette.bind("<Shift-Return>", lambda event: editor_find_text(palette.get(), False))
 
 
-def editor_delete_word_backwards(event=None):
-    cursor_position = editor.index(tk.INSERT)
-    editor.tag_add(tk.SEL, f"{cursor_position} wordstart", cursor_position)
-    editor.delete(tk.SEL_FIRST, tk.SEL_LAST)
-
-
-def palette_delete_word_backwards(event=None):
-    cursor_pos = palette.index(tk.INSERT)
-    if cursor_pos == "0.0":
-        return 'break'
-    current_char = palette.get(cursor_pos)
-    # If the cursor is currently at the end of a word, delete the whole word
-    if current_char == " ":
-        palette.delete(cursor_pos)
-    # Otherwise, delete characters until a space is found or the beginning of the palette is reached
+def delete_word_backwords(widget):
+    cursor = widget.index(tk.INSERT)
+    start = cursor
+    if not isinstance(cursor, int):
+        while start != "1.0":
+            wordstart = widget.index(f"{start} wordstart")
+            if wordstart == start:
+                start = widget.index(start +" - 1c")
+            elif cursor.split('.')[0] != wordstart.split('.')[0]:
+                start = f"{cursor.split('.')[0]}.0 - 1c"
+                break
+            else:
+                start = f"{wordstart} + 1c"
+                break
     else:
-        while cursor_pos != "0.0":
-            cursor_pos = palette.index(f"{cursor_pos} - 1c")
-            if palette.get(cursor_pos) == " ":
-                palette.delete(f"{cursor_pos}+1c", tk.INSERT)
+         text = widget.get()
+         while start != 0:
+            start -= 1
+            if text[start] == " ":
+                start +=1
                 break
-            if cursor_pos == "0.0":
-                palette.delete(0, tk.INSERT)
-                break
-    return 'break'
-
+    widget.delete(f"{start}", cursor)
 
 
 root.title("T_T")
@@ -224,7 +223,7 @@ tagger = Tagger(tags, Py.PROG)
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-f>", editor_find)
-editor.bind("<Control-BackSpace>", editor_delete_word_backwards)
+editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
 
 for k in tags:
     editor.tag_configure(k, tags[k])
@@ -236,7 +235,7 @@ separator.pack(fill="x")
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Courier', 15), highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
-palette.bind("<Control-BackSpace>", palette_delete_word_backwards)
+palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
 
 palette.pack(fill="x")
 
