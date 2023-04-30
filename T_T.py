@@ -2,7 +2,6 @@ import re
 import tkinter as tk
 from tkinter.filedialog import asksaveasfilename, askopenfilename
 
-
 colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
           "GREEN": "#00FF00", "BLUE": "#0000FF", "YELLOW": "#FFFF00",
           "MAGENTA": "#FF00FF", "CYAN": "#00FFFF", "GRAY": "#808080", 
@@ -16,7 +15,6 @@ colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
           "LIGHT_GREEN": "#80FF80", "LIGHT_BLUE": "#8080FF", "LIGHT_YELLOW": "#FFFF80",
           "LIGHT_MAGENTA": "#FF80FF", "LIGHT_CYAN": "#80FFFF"
 }
-
 
 class TextCol:
     fg = colors["LIGHT_GRAY"]
@@ -93,7 +91,7 @@ class EventText(tk.Text):
 tags = {}
 tags[tk.SEL] = {'foreground': TextCol.fg, 'background': TextCol.selected}
 tags['COMMENT'] = {'foreground': TextCol.comment, 'background': TextCol.bg}
-tags['CLASSDEF'] = {'foreground': TextCol.string, 'background': TextCol.bg}
+tags['CLASSDEF'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
 tags['KEYWORD'] = {'foreground': TextCol.keyword, 'background': TextCol.bg}
 tags['BUILTIN'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
 tags['STRING'] = {'foreground': TextCol.string, 'background': TextCol.bg}
@@ -162,9 +160,9 @@ def editor_find_text(text, forward = True):
 
 def editor_modified(event=None):
     args = editor.event_args
-    
     start = end = editor.index(tk.INSERT)
-    line, char = map(int, start.split("."))
+    line, _ = map(int, start.split("."))
+
     if len(args) > 1:
         start = f"{line-1}.{0}"
         start += f" - {len(args[-1])}c"
@@ -174,10 +172,7 @@ def editor_modified(event=None):
     else:
         start = f"{line-1}.{0}"
         end = f"{line+1}.{0}"
-    # end += f" + {len(args[-1])}c"
-    # print((start, end))
-    # start = editor.index("@0,0")
-    # end = editor.index(f"@{editor.winfo_width()},{editor.winfo_width()}")
+    
     tagger.update(editor, start, end)
 
 
@@ -196,10 +191,10 @@ def delete_word_backwords(widget):
             if wordstart == start:
                 start = widget.index(start +" - 1c")
             elif cursor.split('.')[0] != wordstart.split('.')[0]:
-                start = f"{cursor.split('.')[0]}.0 - 1c"
+                start = f"{cursor.split('.')[0]}.0"
                 break
             else:
-                start = f"{wordstart} + 1c"
+                start = f"{wordstart}"
                 break
     else:
          text = widget.get()
@@ -208,7 +203,28 @@ def delete_word_backwords(widget):
             if text[start] == " ":
                 start +=1
                 break
-    widget.delete(f"{start}", cursor)
+    if start != cursor:
+        widget.delete(f"{start}", cursor)
+        return "break"
+    return None
+
+
+def editor_tab(event=None):
+    cursor = editor.index(tk.INSERT)
+    _, char = map(int, cursor.split('.'))
+    editor.insert(tk.INSERT, " " * (4-char%4))
+    return 'break'
+
+
+def editor_backspace(event=None):
+    cursor = editor.index(tk.INSERT)
+    line, char = map(int, cursor.split('.'))
+    if char > 0 and char % 4 == 0:
+        text = editor.get(f"{line}.{char-4}", f"{line}.{char}")
+        if text == " " * 4:
+            editor.delete(f"{line}.{char-4}", f"{line}.{char}")
+            return 'break'
+    return None
 
 
 root.title("T_T")
@@ -218,12 +234,15 @@ root.bind("<Control-o>", open_file)
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Escape>", lambda x: editor.focus_set())
 
-editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Courier', 15), foreground=TextCol.fg, background=TextCol.bg)
+editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Inconsolata', 12), foreground=TextCol.fg, background=TextCol.bg)
 tagger = Tagger(tags, Py.PROG)
+
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-f>", editor_find)
 editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
+editor.bind("<BackSpace>", editor_backspace)
+editor.bind("<Tab>", editor_tab)
 
 for k in tags:
     editor.tag_configure(k, tags[k])
@@ -232,11 +251,11 @@ editor.pack(expand=True, fill="both")
 
 separator = tk.Frame(root, bg=colors["DARK_GRAY"], height=1, bd=0)
 separator.pack(fill="x")
-palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Courier', 15), highlightthickness=0)
+
+palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Inconsolata', 15), highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
 
 palette.pack(fill="x")
-
 root.mainloop()
