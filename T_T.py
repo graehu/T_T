@@ -1,5 +1,8 @@
 import re
+import tempfile
+import base64, zlib
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter.filedialog import asksaveasfilename, askopenfilename
 
 colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
@@ -77,14 +80,18 @@ class EventText(tk.Text):
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
-        result = self.tk.call(cmd)
-        if command in ("insert", "delete", "replace"):
-            self.event_args = args
-            self.event_generate("<<TextModified>>")
+        result = ""
+        try:
+            result = self.tk.call(cmd)
+            if command in ("insert", "delete", "replace"):
+                self.event_args = args
+                self.event_generate("<<TextModified>>")
+            
+            if command in ("yview", "xview"):
+                self.event_generate("<<ViewUpdated>>")
+        except Exception as e:
+            print(e)
         
-        if command in ("yview", "xview"):
-            self.event_generate("<<ViewUpdated>>")
-
         return result
 
 
@@ -103,7 +110,6 @@ for k in tags:
     tags[k].update({"selectbackground": tags[tk.SEL]["background"]})
 
 current_file_path = None
-root = tk.Tk()
 
 def save_file(event=None):
     global current_file_path
@@ -227,17 +233,27 @@ def editor_backspace(event=None):
             return 'break'
     return None
 
-
+root = tk.Tk()
 root.title("T_T")
+
+blank_icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBysAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
+_, icon_path = tempfile.mkstemp()
+open(icon_path, 'wb').write(blank_icon)
+root.iconbitmap(default=icon_path)
+
+fonts = ["Inconsolata", "Fira Mono", "Source Code Pro", "Anonymous Pro", "M+ 1M", "Hack", "Monolisa", "Gintronic", "Droid Sans Mono", "Dank Mono", "PragmataPro", "DejaVu Sans Mono", "Ubuntu Mono", "Bitstream Vera Sans Mono"]
+font = next((f for f in fonts if f in tkfont.families()), "Courier")
+font=(font, 8)
+
 root.bind("<Control-f>", editor_find)
 root.bind("<Control-s>", save_file)
 root.bind("<Control-o>", open_file)
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Escape>", lambda x: editor.focus_set())
 
-editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=('Inconsolata', 12), foreground=TextCol.fg, background=TextCol.bg)
 tagger = Tagger(tags, Py.PROG)
 
+editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=font, foreground=TextCol.fg, background=TextCol.bg)
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-f>", editor_find)
@@ -245,6 +261,7 @@ editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
 editor.bind("<BackSpace>", editor_backspace)
 editor.bind("<Tab>", editor_tab)
 tab_spaces = 4
+
 for k in tags: editor.tag_configure(k, tags[k])
 
 editor.pack(expand=True, fill="both")
@@ -252,7 +269,7 @@ editor.pack(expand=True, fill="both")
 separator = tk.Frame(root, bg=colors["DARK_GRAY"], height=1, bd=0)
 separator.pack(fill="x")
 
-palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=('Inconsolata', 15), highlightthickness=0)
+palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=font, highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
