@@ -6,7 +6,7 @@ colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
           "GREEN": "#00FF00", "BLUE": "#0000FF", "YELLOW": "#FFFF00",
           "MAGENTA": "#FF00FF", "CYAN": "#00FFFF", "GRAY": "#808080", 
           "DARK_GRAY": "#404040", "DARKER_GRAY": "#252525",
-          "LIGHT_GRAY": "#C0C0C0", "ORANGE": "#FFA500",
+          "LIGHT_GRAY": "#C0C0C0", "DARK_ORANGE": "#CC8300", "ORANGE": "#FFA500",
           "PURPLE": "#800080", "BROWN": "#A52A2A", "PINK": "#FFC0CB",
           "LIGHT_PINK": "#FFB6C1", "GOLD": "#FFD700", "NAVY": "#000080",
           "TEAL": "#008080", "DARK_RED": "#B80000", "DARK_GREEN":"#009000", "DARKER_GREEN":"#008000",
@@ -23,7 +23,7 @@ class TextCol:
     comment = colors["DARKER_GREEN"]
     keyword = colors["LIGHT_MAGENTA"]
     builtin = colors["GOLD"]
-    string = colors["DARK_GREEN"]
+    string = colors["DARK_ORANGE"]
     definition = colors["LIGHT_BLUE"]
 
 
@@ -94,6 +94,7 @@ tags['COMMENT'] = {'foreground': TextCol.comment, 'background': TextCol.bg}
 tags['CLASSDEF'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
 tags['KEYWORD'] = {'foreground': TextCol.keyword, 'background': TextCol.bg}
 tags['BUILTIN'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
+tags['TYPES'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
 tags['STRING'] = {'foreground': TextCol.string, 'background': TextCol.bg}
 tags['DEFINITION'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
 
@@ -212,17 +213,17 @@ def delete_word_backwords(widget):
 def editor_tab(event=None):
     cursor = editor.index(tk.INSERT)
     _, char = map(int, cursor.split('.'))
-    editor.insert(tk.INSERT, " " * (4-char%4))
+    editor.insert(tk.INSERT, " " * (tab_spaces-char%tab_spaces))
     return 'break'
 
 
 def editor_backspace(event=None):
     cursor = editor.index(tk.INSERT)
     line, char = map(int, cursor.split('.'))
-    if char > 0 and char % 4 == 0:
-        text = editor.get(f"{line}.{char-4}", f"{line}.{char}")
-        if text == " " * 4:
-            editor.delete(f"{line}.{char-4}", f"{line}.{char}")
+    if char > 0 and char % tab_spaces == 0:
+        text = editor.get(f"{line}.{char-tab_spaces}", f"{line}.{char}")
+        if text == " " * tab_spaces:
+            editor.delete(f"{line}.{char-tab_spaces}", f"{line}.{char}")
             return 'break'
     return None
 
@@ -243,9 +244,8 @@ editor.bind("<Control-f>", editor_find)
 editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
 editor.bind("<BackSpace>", editor_backspace)
 editor.bind("<Tab>", editor_tab)
-
-for k in tags:
-    editor.tag_configure(k, tags[k])
+tab_spaces = 4
+for k in tags: editor.tag_configure(k, tags[k])
 
 editor.pack(expand=True, fill="both")
 
