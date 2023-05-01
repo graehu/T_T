@@ -1,17 +1,13 @@
 import re
 import os
-import toml
-import tempfile
-import base64, zlib
+import json
+import subprocess
 import tkinter as tk
 import tkinter.font as tkfont
-import subprocess
-from tkinter.filedialog import asksaveasfilename, askopenfilename
 
 _T_T_dir = os.path.expanduser("~/.T_T")
 _T_T_dir = _T_T_dir.replace("\\", "/")
-conf_path = "/".join((_T_T_dir, "config.toml"))
-
+conf_path = "/".join((_T_T_dir, "config.json"))
 config = {
     "theme":{
         "fg": "#C0C0C0",
@@ -26,17 +22,16 @@ config = {
             "types": "#FFD700",
             "number": "#FFFFFF",
             "classdef": "#8080FF",
-            "comment": "#008000",
-            "definition": "#8080FF",
+            "decorator": "#FF00FF",
+            "comment": "#008000"
         }
     }
 }
-
 os.makedirs(_T_T_dir, exist_ok=True)
-def save_config(): toml.dump(config, open(conf_path, "w"))
+def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
 def open_config(): subprocess.run("code "+conf_path, shell=True)
 if not os.path.exists(conf_path): save_config()
-config = toml.load(conf_path)
+config = json.load(open(conf_path))
 
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
@@ -107,29 +102,23 @@ current_file_path = None
 
 def save_file(event=None):
     global current_file_path
-    if not current_file_path:
-        current_file_path = asksaveasfilename(defaultextension=".txt")
-        if not current_file_path:
-            return
-    
     with open(current_file_path, "w") as output_file:
         text = editor.get(1.0, tk.END)
         output_file.write(text)
 
 
-def open_file(event=None):
+def open_file(file_path):
     global root
     global current_file_path
-    file_path = askopenfilename()
-    if not file_path:
-        return
-    
-    current_file_path = file_path
-    editor.delete(1.0, tk.END)
-    with open(current_file_path, "r") as input_file:
-        text = input_file.read()
-        editor.insert(tk.END, text)
-    root.title(current_file_path)
+    file_path = os.path.expanduser(file_path)
+    file_path = os.path.abspath(file_path)
+    if os.path.exists(file_path):
+        current_file_path = file_path
+        editor.delete(1.0, tk.END)
+        with open(current_file_path, "r") as input_file:
+            text = input_file.read()
+            editor.insert(tk.END, text)
+        root.title(current_file_path)
 
 
 def editor_select_all(event=None):
@@ -138,6 +127,14 @@ def editor_select_all(event=None):
     editor.see(tk.INSERT)
     return 'break'
 
+
+def palette_command(text, shift=False):
+    if text.startswith("? "):
+        editor_find_text(text[2:], not shift)
+    elif text.startswith("o "):
+        open_file(text[2:])
+    else:
+        print(text)
 
 def editor_find_text(text, forward = True):
     if text:
@@ -177,10 +174,13 @@ def editor_modified(event=None):
     tagger.update(editor, start, end)
 
 
-def editor_find(event=None):
-    palette.focus_set()    
-    palette.bind("<Return>", lambda event: editor_find_text(palette.get()))
-    palette.bind("<Shift-Return>", lambda event: editor_find_text(palette.get(), False))
+def pallete_op(op=None):
+    palette.delete(0,2)
+    palette.insert(0, op+" ")
+    palette.focus_set()
+    palette.bind("<Return>", lambda event: palette_command(palette.get()))
+    palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
+    return "break"
 
 
 def delete_word_backwords(widget):
@@ -230,7 +230,11 @@ def editor_backspace(event=None):
 root = tk.Tk()
 
 root.title("T_T")
+
 if os.name == "nt":
+    import zlib
+    import base64
+    import tempfile
     blank_icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBysAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
     _, icon_path = tempfile.mkstemp()
     open(icon_path, 'wb').write(blank_icon)
@@ -245,9 +249,9 @@ if not "font" in config["theme"]: config["theme"]["font"] = font[0]
 if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
 
-root.bind("<Control-f>", editor_find)
+root.bind("<Control-f>", lambda x: pallete_op("?"))
 root.bind("<Control-s>", save_file)
-root.bind("<Control-o>", open_file)
+root.bind("<Control-o>", lambda x: pallete_op("o"))
 root.bind("<Control-u>", lambda x: save_config())
 root.bind("<Control-C>", lambda x: open_config())
 root.bind("<Control-w>", lambda x: root.quit())
@@ -257,7 +261,6 @@ root.bind("<Escape>", lambda x: editor.focus_set())
 editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
-editor.bind("<Control-f>", editor_find)
 editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
 editor.bind("<BackSpace>", editor_backspace)
 editor.bind("<Tab>", editor_tab)
@@ -287,9 +290,13 @@ tagger = Tagger(tags, Py.PROG)
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x")
 
+def palette_select_all(event=None):
+    palette.selection_range(2, tk.END)
+    return "break"
+
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
-palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
-palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
+palette.bind("<Control-a>", palette_select_all)
+palette.bind('<FocusIn>', palette_select_all)
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
 
 palette.pack(fill="x")
