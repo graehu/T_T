@@ -5,6 +5,7 @@ import tempfile
 import base64, zlib
 import tkinter as tk
 import tkinter.font as tkfont
+import subprocess
 from tkinter.filedialog import asksaveasfilename, askopenfilename
 
 _T_T_dir = os.path.expanduser("~/.T_T")
@@ -32,7 +33,9 @@ config = {
 }
 
 os.makedirs(_T_T_dir, exist_ok=True)
-if not os.path.exists(conf_path): toml.dump(config, open(conf_path, "w"))
+def save_config(): toml.dump(config, open(conf_path, "w"))
+def open_config(): subprocess.run("code "+conf_path, shell=True)
+if not os.path.exists(conf_path): save_config()
 config = toml.load(conf_path)
 
 class Py:
@@ -225,8 +228,8 @@ def editor_backspace(event=None):
     return None
 
 root = tk.Tk()
-root.title("T_T")
 
+root.title("T_T")
 if os.name == "nt":
     blank_icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBysAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
     _, icon_path = tempfile.mkstemp()
@@ -236,11 +239,17 @@ if os.name == "nt":
 font = config["theme"]["font"] if "font" in config["theme"] else ""
 fonts = [font, "Inconsolata", "Fira Mono", "Source Code Pro", "Anonymous Pro", "M+ 1M", "Hack", "Monolisa", "Gintronic", "Droid Sans Mono", "Dank Mono", "PragmataPro", "DejaVu Sans Mono", "Ubuntu Mono", "Bitstream Vera Sans Mono"]
 font = next((f for f in fonts if f in tkfont.families()), "Courier")
-font = (font, 10)
+fontsize = config["theme"]["fontsize"] if "fontsize" in config["theme"] else 12
+font = (font, fontsize)
+if not "font" in config["theme"]: config["theme"]["font"] = font[0]
+if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
+
 
 root.bind("<Control-f>", editor_find)
 root.bind("<Control-s>", save_file)
 root.bind("<Control-o>", open_file)
+root.bind("<Control-u>", lambda x: save_config())
+root.bind("<Control-C>", lambda x: open_config())
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Escape>", lambda x: editor.focus_set())
 
