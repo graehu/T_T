@@ -1,49 +1,54 @@
 import re
+import os
+import toml
 import tempfile
 import base64, zlib
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter.filedialog import asksaveasfilename, askopenfilename
 
-colors = { "BLACK": "#000000", "WHITE": "#FFFFFF", "RED": "#FF0000",
-          "GREEN": "#00FF00", "BLUE": "#0000FF", "YELLOW": "#FFFF00",
-          "MAGENTA": "#FF00FF", "CYAN": "#00FFFF", "GRAY": "#808080", 
-          "DARK_GRAY": "#404040", "DARKER_GRAY": "#252525",
-          "LIGHT_GRAY": "#C0C0C0", "DARK_ORANGE": "#CC8300", "ORANGE": "#FFA500",
-          "PURPLE": "#800080", "BROWN": "#A52A2A", "PINK": "#FFC0CB",
-          "LIGHT_PINK": "#FFB6C1", "GOLD": "#FFD700", "NAVY": "#000080",
-          "TEAL": "#008080", "DARK_RED": "#B80000", "DARK_GREEN":"#009000", "DARKER_GREEN":"#008000",
-          "DARK_BLUE": "#000080", "DARK_YELLOW": "#B8B800",
-          "DARK_MAGENTA": "#800080", "DARK_CYAN": "#008080", "LIGHT_RED": "#FF8080",
-          "LIGHT_GREEN": "#80FF80", "LIGHT_BLUE": "#8080FF", "LIGHT_YELLOW": "#FFFF80",
-          "LIGHT_MAGENTA": "#FF80FF", "LIGHT_CYAN": "#80FFFF"
+_T_T_dir = os.path.expanduser("~/.T_T")
+_T_T_dir = _T_T_dir.replace("\\", "/")
+conf_path = "/".join((_T_T_dir, "config.toml"))
+
+config = {
+    "theme":{
+        "fg": "#C0C0C0",
+        "bg": "#252525",
+        "selected": "#404040",
+        "syntax": {
+            "keyword": "#FF80FF",
+            "exception": "#880000",
+            "builtin": "#FFD700",
+            "docstring": "#008000",
+            "string": "#CC8300",
+            "types": "#FFD700",
+            "number": "#FFFFFF",
+            "classdef": "#8080FF",
+            "comment": "#008000",
+            "definition": "#8080FF",
+        }
+    }
 }
 
-class TextCol:
-    fg = colors["LIGHT_GRAY"]
-    bg =  colors["DARKER_GRAY"]
-    selected = colors["DARK_GRAY"]
-    comment = colors["DARKER_GREEN"]
-    keyword = colors["LIGHT_MAGENTA"]
-    builtin = colors["GOLD"]
-    string = colors["DARK_ORANGE"]
-    definition = colors["LIGHT_BLUE"]
-
+os.makedirs(_T_T_dir, exist_ok=True)
+if not os.path.exists(conf_path): toml.dump(config, open(conf_path, "w"))
+config = toml.load(conf_path)
 
 class Py:
-    KEYWORD   = r"\b(?P<KEYWORD>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
-    EXCEPTION = r"([^.'\"\\#]\b|^)(?P<EXCEPTION>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
-    BUILTIN   = r"([^.'\"\\#]\b|^)(?P<BUILTIN>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
-    DOCSTRING = r"(?P<DOCSTRING>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
-    STRING    = r"(?P<STRING>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    TYPES     = r"\b(?P<TYPES>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
-    NUMBER    = r"\b(?P<NUMBER>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
-    CLASSDEF  = r"(?<=\bclass)[ \t]+(?P<CLASSDEF>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
-    DECORATOR = r"(^[ \t]*(?P<DECORATOR>@[\w\d\.]+))"
-    INSTANCE  = r"\b(?P<INSTANCE>super|self|cls)\b"
-    COMMENT   = r"(?P<COMMENT>#[^\n]*)"
-    SYNC      = r"(?P<SYNC>\n)"
-    PROG      = rf"{KEYWORD}|{BUILTIN}|{EXCEPTION}|{TYPES}|{COMMENT}|{DOCSTRING}|{STRING}|{SYNC}|{INSTANCE}|{DECORATOR}|{NUMBER}|{CLASSDEF}"
+    keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
+    exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
+    builtin   = r"([^.'\"\\#]\b|^)(?P<builtin>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
+    docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
+    string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
+    types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
+    number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
+    classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
+    decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
+    instance  = r"\b(?P<instance>super|self|cls)\b"
+    comment   = r"(?P<comment>#[^\n]*)"
+    sync      = r"(?P<sync>\n)"
+    PROG      = rf"{keyword}|{builtin}|{exception}|{types}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
 
 
 class Tagger:
@@ -94,20 +99,6 @@ class EventText(tk.Text):
         
         return result
 
-
-tags = {}
-tags[tk.SEL] = {'foreground': TextCol.fg, 'background': TextCol.selected}
-tags['COMMENT'] = {'foreground': TextCol.comment, 'background': TextCol.bg}
-tags['CLASSDEF'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
-tags['KEYWORD'] = {'foreground': TextCol.keyword, 'background': TextCol.bg}
-tags['BUILTIN'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
-tags['TYPES'] = {'foreground': TextCol.builtin, 'background': TextCol.bg}
-tags['STRING'] = {'foreground': TextCol.string, 'background': TextCol.bg}
-tags['DEFINITION'] = {'foreground': TextCol.definition, 'background': TextCol.bg}
-
-for k in tags:
-    tags[k].update({"selectforeground": tags[k]["foreground"]})
-    tags[k].update({"selectbackground": tags[tk.SEL]["background"]})
 
 current_file_path = None
 
@@ -236,14 +227,16 @@ def editor_backspace(event=None):
 root = tk.Tk()
 root.title("T_T")
 
-blank_icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBysAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
-_, icon_path = tempfile.mkstemp()
-open(icon_path, 'wb').write(blank_icon)
-root.iconbitmap(default=icon_path)
+if os.name == "nt":
+    blank_icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBysAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
+    _, icon_path = tempfile.mkstemp()
+    open(icon_path, 'wb').write(blank_icon)
+    root.iconbitmap(default=icon_path)
 
-fonts = ["Inconsolata", "Fira Mono", "Source Code Pro", "Anonymous Pro", "M+ 1M", "Hack", "Monolisa", "Gintronic", "Droid Sans Mono", "Dank Mono", "PragmataPro", "DejaVu Sans Mono", "Ubuntu Mono", "Bitstream Vera Sans Mono"]
+font = config["theme"]["font"] if "font" in config["theme"] else ""
+fonts = [font, "Inconsolata", "Fira Mono", "Source Code Pro", "Anonymous Pro", "M+ 1M", "Hack", "Monolisa", "Gintronic", "Droid Sans Mono", "Dank Mono", "PragmataPro", "DejaVu Sans Mono", "Ubuntu Mono", "Bitstream Vera Sans Mono"]
 font = next((f for f in fonts if f in tkfont.families()), "Courier")
-font=(font, 8)
+font = (font, 10)
 
 root.bind("<Control-f>", editor_find)
 root.bind("<Control-s>", save_file)
@@ -251,9 +244,8 @@ root.bind("<Control-o>", open_file)
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Escape>", lambda x: editor.focus_set())
 
-tagger = Tagger(tags, Py.PROG)
 
-editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=TextCol.fg, wrap='none', height=30, width=60, undo=True, font=font, foreground=TextCol.fg, background=TextCol.bg)
+editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-f>", editor_find)
@@ -262,14 +254,31 @@ editor.bind("<BackSpace>", editor_backspace)
 editor.bind("<Tab>", editor_tab)
 tab_spaces = 4
 
-for k in tags: editor.tag_configure(k, tags[k])
-
 editor.pack(expand=True, fill="both")
 
-separator = tk.Frame(root, bg=colors["DARK_GRAY"], height=1, bd=0)
+tags = {}
+for k in config["theme"]["syntax"]:
+    tags[k] = {
+        "foreground": config["theme"]["syntax"][k],
+        "selectforeground": config["theme"]["syntax"][k],
+        "selectbackground": config["theme"]["selected"]
+        }
+
+tags[tk.SEL] = {
+    'foreground': config["theme"]["fg"],
+    'background': config["theme"]["selected"],
+    "selectforeground": config["theme"]["fg"],
+    "selectbackground": config["theme"]["selected"]
+}
+for k in tags: editor.tag_configure(k, tags[k])
+
+tagger = Tagger(tags, Py.PROG)
+
+
+separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x")
 
-palette = tk.Entry(root, width=60, relief='flat', insertbackground=TextCol.fg, foreground=TextCol.fg, background=TextCol.bg, font=font, highlightthickness=0)
+palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
 palette.bind("<Control-a>", lambda x: palette.selection_range(0, tk.END))
 palette.bind('<FocusIn>', lambda x: palette.selection_range(0, tk.END))
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
