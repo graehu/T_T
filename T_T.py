@@ -27,6 +27,7 @@ config = {
         }
     }
 }
+
 os.makedirs(_T_T_dir, exist_ok=True)
 def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
 def open_config(): subprocess.run("code "+conf_path, shell=True)
@@ -121,20 +122,38 @@ def open_file(file_path):
         root.title(current_file_path)
 
 
+def delete_word_backwords(widget):
+    cursor = widget.index(tk.INSERT)
+    start = cursor
+    if not isinstance(cursor, int):
+        while start != "1.0":
+            wordstart = widget.index(f"{start} wordstart")
+            if wordstart == start:
+                start = widget.index(start +" - 1c")
+            elif cursor.split('.')[0] != wordstart.split('.')[0]:
+                start = f"{cursor.split('.')[0]}.0"
+                break
+            else:
+                start = f"{wordstart}"
+                break
+    else:
+         text = widget.get()
+         while start != 0:
+            start -= 1
+            if text[start] == " ":
+                start +=1
+                break
+    if start != cursor:
+        widget.delete(f"{start}", cursor)
+        return "break"
+    return None
+
+
 def editor_select_all(event=None):
     editor.tag_add(tk.SEL, "1.0", tk.END)
     editor.mark_set(tk.INSERT, "1.0")
     editor.see(tk.INSERT)
     return 'break'
-
-
-def palette_command(text, shift=False):
-    if text.startswith("find: "):
-        editor_find_text(text[len("find: "):], not shift)
-    elif text.startswith("open: "):
-        open_file(text[len("open: "):])
-    else:
-        print(text)
 
 
 def editor_find_text(text, forward = True):
@@ -175,44 +194,6 @@ def editor_modified(event=None):
     tagger.update(editor, start, end)
 
 
-def palette_op(op=None):
-    text = palette.get()
-    index = text.find(":")
-    if index != -1: palette.delete(0,index+2)
-    palette.insert(0, op+": ")
-    palette.focus_set()
-    palette.bind("<Return>", lambda event: palette_command(palette.get()))
-    palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
-    return "break"
-
-
-def delete_word_backwords(widget):
-    cursor = widget.index(tk.INSERT)
-    start = cursor
-    if not isinstance(cursor, int):
-        while start != "1.0":
-            wordstart = widget.index(f"{start} wordstart")
-            if wordstart == start:
-                start = widget.index(start +" - 1c")
-            elif cursor.split('.')[0] != wordstart.split('.')[0]:
-                start = f"{cursor.split('.')[0]}.0"
-                break
-            else:
-                start = f"{wordstart}"
-                break
-    else:
-         text = widget.get()
-         while start != 0:
-            start -= 1
-            if text[start] == " ":
-                start +=1
-                break
-    if start != cursor:
-        widget.delete(f"{start}", cursor)
-        return "break"
-    return None
-
-
 def editor_tab(event=None):
     cursor = editor.index(tk.INSERT)
     _, char = map(int, cursor.split('.'))
@@ -229,6 +210,70 @@ def editor_backspace(event=None):
             editor.delete(f"{line}.{char-tab_spaces}", f"{line}.{char}")
             return 'break'
     return None
+
+
+def palette_command(text, shift=False):
+    if text.startswith("find: "):
+        editor_find_text(text[len("find: "):], not shift)
+    elif text.startswith("open: "):
+        open_file(text[len("open: "):])
+    else:
+        print(text)
+
+
+def palette_op(op=None):
+    text = palette.get()
+    index = text.find(":")
+    if index != -1: palette.delete(0,index+2)
+    palette.insert(0, op+": ")
+    palette.focus_set()
+    palette.bind("<Return>", lambda event: palette_command(palette.get()))
+    palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
+    return "break"
+
+
+def palette_select_all(event=None):
+    completions_update(palette.get())
+    text = palette.get()
+    index = text.find(":")
+    if index != -1: palette.selection_range(index+2, tk.END)
+    else: palette.selection_range(0, tk.END)
+    return "break"
+
+
+word_list = ["open: ", "find: ", "find2: "]
+def completions_update(text):
+    matches = [word for word in word_list if len(text) < len(word) and word.startswith(text)] if text else []
+    completions.delete(0, tk.END)
+    for match in matches: completions.insert(tk.END, match)
+    num_matches = len(matches)
+    completions.config(height=num_matches)
+    completions.place(x=palette.winfo_x(), y=palette.winfo_y()+num_matches) # hack to force completions_configured
+
+
+def completions_configured(event=None):
+    completions.place_forget()
+    if completions.size() != 0:
+        height = completions.winfo_height()
+        completions.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
+
+
+def completions_insert(event):
+    sel = completions.curselection()
+    if sel:
+        selected_text = completions.get(sel)
+        palette.delete(0, tk.END)
+        text = palette.get()
+        index = text.find(":")
+        if index != -1: palette.selection_range(index+2, tk.END)
+        else: palette.selection_range(0, tk.END)
+        palette.insert(0, selected_text)
+        palette.focus_set()
+
+
+if os.name == "nt":
+    from ctypes import windll
+    windll.shcore.SetProcessDpiAwareness(1)
 
 root = tk.Tk()
 
@@ -258,7 +303,6 @@ root.bind("<Control-o>", lambda x: palette_op("open"))
 root.bind("<Control-u>", lambda x: save_config())
 root.bind("<Control-C>", lambda x: open_config())
 root.bind("<Control-w>", lambda x: root.quit())
-root.bind("<Escape>", lambda x: editor.focus_set())
 
 
 editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
@@ -266,6 +310,7 @@ editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
 editor.bind("<BackSpace>", editor_backspace)
+editor.bind("<FocusIn>", lambda x: completions.place_forget())
 editor.bind("<Tab>", editor_tab)
 tab_spaces = 4
 
@@ -292,51 +337,22 @@ tagger = Tagger(tags, Py.PROG)
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x", expand=False)
 
-word_list = ["test1","test2","test3","doop",
-             ]
-def update_completions(text):
-    matches = [word for word in word_list if word.startswith(text)] if text else []
-    completions.delete(0, tk.END)
-    for match in matches: completions.insert(tk.END, match)
-    num_matches = len(matches)
-    completions.config(height=num_matches)
-    completions.update()
-    height = completions.winfo_height()
-    completions.place_forget()
-    if num_matches != 0:
-        completions.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
-
-def insert_completion(event):
-    selected_text = completions.get(completions.curselection())
-    palette.delete(0, tk.END)
-    text = palette.get()
-    index = text.find(":")
-    if index != -1: palette.selection_range(index+2, tk.END)
-    else: palette.selection_range(0, tk.END)
-    palette.insert(0, selected_text)
-    palette.focus_set()
-
 
 completions = tk.Listbox(root, relief='flat', foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font)
-completions.bind("<Double-Button-1>", insert_completion)
-completions.bind("<Return>", insert_completion)
+completions.bind("<Double-Button-1>", completions_insert)
+completions.bind("<Return>", completions_insert)
+completions.bind("<Configure>", completions_configured)
+completions.bind("<Escape>", lambda x: palette.focus_set())
 
-def palette_select_all(event=None):
-    update_completions(palette.get())
-    text = palette.get()
-    index = text.find(":")
-    if index != -1: palette.selection_range(index+2, tk.END)
-    else: palette.selection_range(0, tk.END)
-    return "break"
 
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
 palette.bind("<Control-a>", palette_select_all)
-palette.bind("<KeyRelease>", lambda x: update_completions(palette.get()))
-palette.bind('<FocusIn>', palette_select_all)
+palette.bind("<KeyRelease>", lambda x: completions_update(palette.get()))
+palette.bind('<FocusIn>', lambda x: palette.focus_set())
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
-palette.bind("<Escape>", lambda event: completions.place_forget())
-palette.bind("<Down>", lambda event: completions.focus_set())
-
+palette.bind("<Escape>", lambda x: editor.focus_set())
+palette.bind("<Down>", lambda x: (completions.focus_set(), completions.select_set(0)) if completions.size() else "")
 
 palette.pack(fill="x")
+
 root.mainloop()
