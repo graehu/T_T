@@ -129,12 +129,13 @@ def editor_select_all(event=None):
 
 
 def palette_command(text, shift=False):
-    if text.startswith("? "):
-        editor_find_text(text[2:], not shift)
-    elif text.startswith("o "):
-        open_file(text[2:])
+    if text.startswith("find: "):
+        editor_find_text(text[len("find: "):], not shift)
+    elif text.startswith("open: "):
+        open_file(text[len("open: "):])
     else:
         print(text)
+
 
 def editor_find_text(text, forward = True):
     if text:
@@ -174,9 +175,11 @@ def editor_modified(event=None):
     tagger.update(editor, start, end)
 
 
-def pallete_op(op=None):
-    palette.delete(0,2)
-    palette.insert(0, op+" ")
+def palette_op(op=None):
+    text = palette.get()
+    index = text.find(":")
+    if index != -1: palette.delete(0,index+2)
+    palette.insert(0, op+": ")
     palette.focus_set()
     palette.bind("<Return>", lambda event: palette_command(palette.get()))
     palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
@@ -249,9 +252,9 @@ if not "font" in config["theme"]: config["theme"]["font"] = font[0]
 if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
 
-root.bind("<Control-f>", lambda x: pallete_op("?"))
+root.bind("<Control-f>", lambda x: palette_op("find"))
 root.bind("<Control-s>", save_file)
-root.bind("<Control-o>", lambda x: pallete_op("o"))
+root.bind("<Control-o>", lambda x: palette_op("open"))
 root.bind("<Control-u>", lambda x: save_config())
 root.bind("<Control-C>", lambda x: open_config())
 root.bind("<Control-w>", lambda x: root.quit())
@@ -291,7 +294,10 @@ separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x")
 
 def palette_select_all(event=None):
-    palette.selection_range(2, tk.END)
+    text = palette.get()
+    index = text.find(":")
+    if index != -1: palette.selection_range(index+2, tk.END)
+    else: palette.selection_range(0, tk.END)
     return "break"
 
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
