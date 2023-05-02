@@ -289,11 +289,40 @@ for k in tags: editor.tag_configure(k, tags[k])
 
 tagger = Tagger(tags, Py.PROG)
 
-
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
-separator.pack(fill="x")
+separator.pack(fill="x", expand=False)
+
+word_list = ["test1","test2","test3","doop",
+             ]
+def update_completions(text):
+    matches = [word for word in word_list if word.startswith(text)] if text else []
+    completions.delete(0, tk.END)
+    for match in matches: completions.insert(tk.END, match)
+    num_matches = len(matches)
+    completions.config(height=num_matches)
+    completions.update()
+    height = completions.winfo_height()
+    completions.place_forget()
+    if num_matches != 0:
+        completions.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
+
+def insert_completion(event):
+    selected_text = completions.get(completions.curselection())
+    palette.delete(0, tk.END)
+    text = palette.get()
+    index = text.find(":")
+    if index != -1: palette.selection_range(index+2, tk.END)
+    else: palette.selection_range(0, tk.END)
+    palette.insert(0, selected_text)
+    palette.focus_set()
+
+
+completions = tk.Listbox(root, relief='flat', foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font)
+completions.bind("<Double-Button-1>", insert_completion)
+completions.bind("<Return>", insert_completion)
 
 def palette_select_all(event=None):
+    update_completions(palette.get())
     text = palette.get()
     index = text.find(":")
     if index != -1: palette.selection_range(index+2, tk.END)
@@ -302,8 +331,12 @@ def palette_select_all(event=None):
 
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
 palette.bind("<Control-a>", palette_select_all)
+palette.bind("<KeyRelease>", lambda x: update_completions(palette.get()))
 palette.bind('<FocusIn>', palette_select_all)
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
+palette.bind("<Escape>", lambda event: completions.place_forget())
+palette.bind("<Down>", lambda event: completions.focus_set())
+
 
 palette.pack(fill="x")
 root.mainloop()
