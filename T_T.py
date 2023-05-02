@@ -1,7 +1,6 @@
 import re
 import os
 import json
-import subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -30,7 +29,7 @@ config = {
 
 os.makedirs(_T_T_dir, exist_ok=True)
 def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
-def open_config(): subprocess.run("code "+conf_path, shell=True)
+def open_config(): open_file(conf_path)
 if not os.path.exists(conf_path): save_config()
 config = json.load(open(conf_path))
 
@@ -213,10 +212,14 @@ def editor_backspace(event=None):
 
 
 def palette_command(text, shift=False):
-    if text.startswith("find: "):
-        editor_find_text(text[len("find: "):], not shift)
-    elif text.startswith("open: "):
-        open_file(text[len("open: "):])
+    if text.startswith("find: "): editor_find_text(text[len("find: "):], not shift)
+    elif text.startswith("open: "): open_file(text[len("open: "):])
+    elif text.startswith("config: "): open_config()
+    elif text.startswith("eval: "):
+        try:
+            eval(text[len("eval: "):], globals(), locals())
+        except Exception as e:
+            print(e)
     else:
         print(text)
 
@@ -225,7 +228,7 @@ def palette_op(op=None):
     text = palette.get()
     index = text.find(":")
     if index != -1: palette.delete(0,index+2)
-    palette.insert(0, op+": ")
+    if op: palette.insert(0, op+": ")
     palette.focus_set()
     palette.bind("<Return>", lambda event: palette_command(palette.get()))
     palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
@@ -233,7 +236,7 @@ def palette_op(op=None):
 
 
 def palette_select_all(event=None):
-    completions_update(palette.get())
+    complist_update(palette.get())
     text = palette.get()
     index = text.find(":")
     if index != -1: palette.selection_range(index+2, tk.END)
@@ -241,27 +244,38 @@ def palette_select_all(event=None):
     return "break"
 
 
-word_list = ["open: ", "find: ", "find2: "]
-def completions_update(text):
-    matches = [word for word in word_list if len(text) < len(word) and word.startswith(text)] if text else []
-    completions.delete(0, tk.END)
-    for match in matches: completions.insert(tk.END, match)
-    num_matches = len(matches)
-    completions.config(height=num_matches)
-    completions.place(x=palette.winfo_x(), y=palette.winfo_y()+num_matches) # hack to force completions_configured
+def complist_get_completions(text):
+    if text.startswith("open: "):
+        path = text[len("open: "):]
+        path = os.path.dirname(path)
+        if path and os.path.exists(path):
+            if not path.endswith("/"): path+="/"
+            return [f"open: "+path+p+("/" if os.path.isdir(path+p)else"") for p in os.listdir(path)]
+
+    return commands
+
+def complist_update(text):
+    comps = complist_get_completions(text)
+    matches = [word for word in comps if len(text) < len(word) and word.startswith(text)] if text else []
+    complist.delete(0, tk.END)
+    for match in matches: complist.insert(tk.END, match)
+    height = len(matches)
+    width = len(max(matches, key=len))+1 if height else 0
+    complist.config(height=height, width=width)
+    complist.place(x=palette.winfo_x(), y=palette.winfo_y()+height) # hack to force complist_configured
 
 
-def completions_configured(event=None):
-    completions.place_forget()
-    if completions.size() != 0:
-        height = completions.winfo_height()
-        completions.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
+def complist_configured(event=None):
+    complist.place_forget()
+    if complist.size() != 0:
+        height = complist.winfo_height()
+        complist.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
 
 
-def completions_insert(event):
-    sel = completions.curselection()
-    if sel:
-        selected_text = completions.get(sel)
+def complist_insert(event=None, sel=-1):
+    if sel == -1: sel = complist.curselection()
+    if sel != None and sel != -1:
+        selected_text = complist.get(sel)
         palette.delete(0, tk.END)
         text = palette.get()
         index = text.find(":")
@@ -269,6 +283,7 @@ def completions_insert(event):
         else: palette.selection_range(0, tk.END)
         palette.insert(0, selected_text)
         palette.focus_set()
+    return "break"
 
 
 if os.name == "nt":
@@ -298,11 +313,15 @@ if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
 
 root.bind("<Control-f>", lambda x: palette_op("find"))
-root.bind("<Control-s>", save_file)
 root.bind("<Control-o>", lambda x: palette_op("open"))
+root.bind("<Control-e>", lambda x: palette_op("eval"))
+root.bind("<Control-m>", lambda x: palette_op("config"))
+root.bind("<Control-p>", lambda x: palette_op())
+root.bind("<Control-s>", save_file)
 root.bind("<Control-u>", lambda x: save_config())
 root.bind("<Control-C>", lambda x: open_config())
 root.bind("<Control-w>", lambda x: root.quit())
+root.bind("<Configure>", lambda x: complist_configured())
 
 
 editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
@@ -310,8 +329,9 @@ editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
 editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
 editor.bind("<BackSpace>", editor_backspace)
-editor.bind("<FocusIn>", lambda x: completions.place_forget())
+editor.bind("<FocusIn>", lambda x: complist.place_forget())
 editor.bind("<Tab>", editor_tab)
+
 tab_spaces = 4
 
 editor.pack(expand=True, fill="both")
@@ -337,21 +357,22 @@ tagger = Tagger(tags, Py.PROG)
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x", expand=False)
 
-
-completions = tk.Listbox(root, relief='flat', foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font)
-completions.bind("<Double-Button-1>", completions_insert)
-completions.bind("<Return>", completions_insert)
-completions.bind("<Configure>", completions_configured)
-completions.bind("<Escape>", lambda x: palette.focus_set())
-
+complist = tk.Listbox(root, relief='flat', foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font)
+complist.bind("<Double-Button-1>", complist_insert)
+complist.bind("<Return>", complist_insert)
+complist.bind("<Configure>", complist_configured)
+complist.bind("<Escape>", lambda x: palette.focus_set())
 
 palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
 palette.bind("<Control-a>", palette_select_all)
-palette.bind("<KeyRelease>", lambda x: completions_update(palette.get()))
+palette.bind("<KeyRelease>", lambda x: complist_update(palette.get()))
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
 palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
 palette.bind("<Escape>", lambda x: editor.focus_set())
-palette.bind("<Down>", lambda x: (completions.focus_set(), completions.select_set(0)) if completions.size() else "")
+palette.bind("<Tab>", lambda x: complist_insert(None, 0))
+palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
+
+commands = ["open: ", "find: ", "eval: ", "config: "]
 
 palette.pack(fill="x")
 
