@@ -147,6 +147,41 @@ def delete_word_backwords(widget):
         return "break"
     return None
 
+br_pat = re.compile(r"}|{|\.|:|/|\"|\\")
+def delete_to_break(widget, backwords=True):
+    cursor = widget.index(tk.INSERT)
+    start = cursor
+    if not isinstance(cursor, int):
+        line, char = map(int, cursor.split("."))
+        if backwords:
+            text = widget.get(f"{line}.0", cursor)
+            text = text[::-1]
+        else:
+            text = widget.get(cursor, f"{line}.end")
+        start = 0
+        if match := br_pat.search(text):
+            start = match.span()[0]
+            if backwords: start = len(text)-start
+            else: start += char
+        if start != cursor:
+            if backwords: widget.delete(f"{line}.{start}", cursor)
+            else: widget.delete(cursor, f"{line}.{start}")
+            return "break"
+    else:
+        text = widget.get()
+        if backwords: text = text[::-1]
+        start = 0
+        if match := br_pat.search(text):
+            start = match.span()[0]
+            if backwords: start = len(text)-start
+            else: start += cursor
+            
+        if start != cursor:
+            if backwords: widget.delete(start, cursor)
+            else: widget.delete(cursor, start)
+            return "break"
+    return None
+
 
 def editor_select_all(event=None):
     editor.tag_add(tk.SEL, "1.0", tk.END)
@@ -323,11 +358,12 @@ root.bind("<Control-C>", lambda x: open_config())
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Configure>", lambda x: complist_configured())
 
+editor = EventText(root, borderwidth=0, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
 
-editor = EventText(root, borderwidth=0, highlightthickness=0, insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
-editor.bind("<Control-BackSpace>", lambda x: delete_word_backwords(editor))
+editor.bind("<Control-BackSpace>", lambda x: delete_to_break(editor))
+editor.bind("<Control-Delete>", lambda x: delete_to_break(editor, False))
 editor.bind("<BackSpace>", editor_backspace)
 editor.bind("<FocusIn>", lambda x: complist.place_forget())
 editor.bind("<Tab>", editor_tab)
@@ -367,7 +403,8 @@ palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme
 palette.bind("<Control-a>", palette_select_all)
 palette.bind("<KeyRelease>", lambda x: complist_update(palette.get()))
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
-palette.bind("<Control-BackSpace>", lambda x: delete_word_backwords(palette))
+palette.bind("<Control-BackSpace>", lambda x: delete_to_break(palette))
+palette.bind("<Control-Delete>", lambda x: delete_to_break(palette, False))
 palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
