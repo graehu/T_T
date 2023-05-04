@@ -166,22 +166,32 @@ def get_next_break(widget, backwards=True):
 def goto_next_break(widget, backwards=True, select=False):
     line, cursor, end = get_next_break(widget, backwards)
     if end == 0: end += 1*(-1 if backwards else 1)
-
+    start = f"{line}.{cursor}" if line else cursor
+    end = f"{line}.{cursor+end}" if line else cursor+end
     if select:
-        args = (tk.INSERT, f"{line}.{cursor+end}") if line else (tk.INSERT, cursor+end)
-        if backwards: args = args[::-1]
-        if tk.SEL in widget.tag_names(args[0]) or tk.SEL in widget.tag_names(args[1]):
-            widget.tag_remove(tk.SEL, *args)
-            # if editor.compare(tk.SEL_FIRST, "<", args[0]): editor.mark_set(tk.SEL_FIRST, args[0])
-            # if editor.compare(tk.SEL_LAST, ">", args[1]): editor.mark_set(tk.SEL_FIRST, args[1])
+        if editor.tag_ranges(tk.SEL):
+            first = widget.index(tk.SEL_FIRST)
+            last = widget.index(tk.SEL_LAST)
+            # todo: handle cross over.
+            if editor.compare(start, ">=", end):
+                if editor.compare(end, "<=", first):
+                    editor.tag_add(tk.SEL, end, start)
+                else:
+                    editor.tag_remove(tk.SEL, end, start)
+            else:
+                if editor.compare(end, ">=", last):
+                    editor.tag_add(tk.SEL, start, end)    
+                else:    
+                    editor.tag_remove(tk.SEL, start, end)
         else:
+            args = (end, widget.index(tk.INSERT))
+            args = args if widget.compare(args[0],"<=",args[1]) else args[::-1]
             widget.tag_add(tk.SEL, *args)
-            # if editor.compare(tk.SEL_FIRST, ">", args[0]): editor.mark_set(tk.SEL_FIRST, args[0])
-            # if editor.compare(tk.SEL_LAST, "<", args[1]): editor.mark_set(tk.SEL_FIRST, args[1])
+            # this doesn't work and is incredibly frustrating. T_T
+            editor.mark_set(tk.SEL_FIRST, args[0])
+            editor.mark_set(tk.SEL_LAST, args[1])
 
-
-    if line: widget.mark_set(tk.INSERT, f"{line}.{cursor+end}")
-    else: widget.mark_set(tk.INSERT, cursor+end)
+    widget.mark_set(tk.INSERT, end)
     return "break"
 
 
