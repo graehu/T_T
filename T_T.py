@@ -99,10 +99,8 @@ class EventText(tk.Text):
 
 
 current_file_path = None
-
-def save_file(event=None):
-    global current_file_path
-    with open(current_file_path, "w") as output_file:
+def save_file(path):
+    with open(path, "w") as output_file:
         text = editor.get(1.0, tk.END)
         output_file.write(text)
 
@@ -147,47 +145,63 @@ def delete_word_backwords(widget):
         return "break"
     return None
 
-br_pat = re.compile(r"}|{|\.|:|/|\"|\\")
-def delete_to_break(widget, backwords=True):
+
+br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
+def get_next_break(widget, backwards=True):
     cursor = widget.index(tk.INSERT)
-    start = cursor
+    line = text = None
     if not isinstance(cursor, int):
-        line, char = map(int, cursor.split("."))
-        if backwords:
-            text = widget.get(f"{line}.0", cursor)
-            text = text[::-1]
-        else:
-            text = widget.get(cursor, f"{line}.end")
-        start = 0
-        if match := br_pat.search(text):
-            start = match.span()[0]
-            if backwords: start = len(text)-start
-            else: start += char
-        if start != cursor:
-            if backwords: widget.delete(f"{line}.{start}", cursor)
-            else: widget.delete(cursor, f"{line}.{start}")
-            return "break"
+        line, cursor = map(int, cursor.split("."))
+        text = widget.get(f"{line}.0", f"{line}.end")
     else:
         text = widget.get()
-        if backwords: text = text[::-1]
-        start = 0
-        if match := br_pat.search(text):
-            start = match.span()[0]
-            if backwords: start = len(text)-start
-            else: start += cursor
-            
-        if start != cursor:
-            if backwords: widget.delete(start, cursor)
-            else: widget.delete(cursor, start)
-            return "break"
-    return None
+    
+    if backwards: text = (text[:cursor])[::-1]
+    else: text = text[cursor:]
+    if match := br_pat.search(text): delta = match.span()[0]*(-1 if backwards else 1)
+    else: delta = len(text)*(-1 if backwards else 1)
+    return (line, cursor, delta)
+
+
+def goto_next_break(widget, backwards=True, select=False):
+    line, cursor, end = get_next_break(widget, backwards)
+    if end == 0: end += 1*(-1 if backwards else 1)
+
+    if select:
+        args = (tk.INSERT, f"{line}.{cursor+end}") if line else (tk.INSERT, cursor+end)
+        if backwards: args = args[::-1]
+        if tk.SEL in widget.tag_names(args[0]) or tk.SEL in widget.tag_names(args[1]):
+            widget.tag_remove(tk.SEL, *args)
+            # if editor.compare(tk.SEL_FIRST, "<", args[0]): editor.mark_set(tk.SEL_FIRST, args[0])
+            # if editor.compare(tk.SEL_LAST, ">", args[1]): editor.mark_set(tk.SEL_FIRST, args[1])
+        else:
+            widget.tag_add(tk.SEL, *args)
+            # if editor.compare(tk.SEL_FIRST, ">", args[0]): editor.mark_set(tk.SEL_FIRST, args[0])
+            # if editor.compare(tk.SEL_LAST, "<", args[1]): editor.mark_set(tk.SEL_FIRST, args[1])
+
+
+    if line: widget.mark_set(tk.INSERT, f"{line}.{cursor+end}")
+    else: widget.mark_set(tk.INSERT, cursor+end)
+    return "break"
+
+
+def delete_to_break(widget, backwards=True):
+    line, cursor, end = get_next_break(widget, backwards)
+    if end != 0: pass
+    elif backwards: return backspace(widget)
+    else: return ""
+
+    args = (f"{line}.{cursor}", f"{line}.{cursor+end}") if line else (cursor, cursor+end)
+    if backwards: args = args[::-1]
+    widget.delete(*args)
+    return "break"
 
 
 def editor_select_all(event=None):
     editor.tag_add(tk.SEL, "1.0", tk.END)
     editor.mark_set(tk.INSERT, "1.0")
     editor.see(tk.INSERT)
-    return 'break'
+    return "break"
 
 
 def editor_find_text(text, forward = True):
@@ -196,7 +210,6 @@ def editor_find_text(text, forward = True):
         stop = (tk.END if forward else "1.0")
         if not forward: start += f"- {len(text)}c"
         pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
-
         if not pos:
             start = "1.0" if forward else tk.END
             pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
@@ -207,7 +220,7 @@ def editor_find_text(text, forward = True):
             editor.tag_add(tk.SEL, pos, end_pos)
             editor.mark_set(tk.INSERT, end_pos)
             editor.see(tk.INSERT)
-    return 'break'
+    return "break"
 
 
 def editor_modified(event=None):
@@ -228,21 +241,24 @@ def editor_modified(event=None):
     tagger.update(editor, start, end)
 
 
-def editor_tab(event=None):
-    cursor = editor.index(tk.INSERT)
-    _, char = map(int, cursor.split('.'))
-    editor.insert(tk.INSERT, " " * (tab_spaces-char%tab_spaces))
-    return 'break'
+def insert_tab(widget):
+    cursor = widget.index(tk.INSERT)
+    if not isinstance(cursor, int):
+        _, char = map(int, cursor.split('.'))
+    else: char = cursor
+    widget.insert(tk.INSERT, " " * (tab_spaces-char%tab_spaces))
+    return "break"
 
 
-def editor_backspace(event=None):
-    cursor = editor.index(tk.INSERT)
-    line, char = map(int, cursor.split('.'))
-    if char > 0 and char % tab_spaces == 0:
-        text = editor.get(f"{line}.{char-tab_spaces}", f"{line}.{char}")
-        if text == " " * tab_spaces:
-            editor.delete(f"{line}.{char-tab_spaces}", f"{line}.{char}")
-            return 'break'
+def backspace(widget):
+    cursor = widget.index(tk.INSERT)
+    if not isinstance(cursor, int):
+        line, char = map(int, cursor.split('.'))
+        if char > 0 and char % tab_spaces == 0:
+            text = widget.get(f"{line}.{char-tab_spaces}", f"{line}.{char}")
+            if text == " " * tab_spaces:
+                widget.delete(f"{line}.{char-tab_spaces}", f"{line}.{char}")
+                return "break"
     return None
 
 
@@ -320,7 +336,6 @@ def complist_insert(event=None, sel=-1):
         palette.focus_set()
     return "break"
 
-
 if os.name == "nt":
     from ctypes import windll
     windll.shcore.SetProcessDpiAwareness(1)
@@ -338,6 +353,17 @@ if os.name == "nt":
     open(icon_path, 'wb').write(blank_icon)
     root.iconbitmap(default=icon_path)
 
+
+root.bind("<Control-f>", lambda x: palette_op("find"))
+root.bind("<Control-o>", lambda x: palette_op("open"))
+root.bind("<Control-e>", lambda x: palette_op("eval"))
+root.bind("<Control-m>", lambda x: palette_op("config"))
+root.bind("<Control-p>", lambda x: palette_op())
+root.bind("<Control-s>", lambda x: save_file(current_file_path))
+root.bind("<Control-w>", lambda x: root.quit())
+root.bind("<Configure>", lambda x: complist_configured())
+
+
 font = config["theme"]["font"] if "font" in config["theme"] else ""
 fonts = [font, "Inconsolata", "Fira Mono", "Source Code Pro", "Anonymous Pro", "M+ 1M", "Hack", "Monolisa", "Gintronic", "Droid Sans Mono", "Dank Mono", "PragmataPro", "DejaVu Sans Mono", "Ubuntu Mono", "Bitstream Vera Sans Mono"]
 font = next((f for f in fonts if f in tkfont.families()), "Courier")
@@ -346,27 +372,20 @@ font = (font, fontsize)
 if not "font" in config["theme"]: config["theme"]["font"] = font[0]
 if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
-
-root.bind("<Control-f>", lambda x: palette_op("find"))
-root.bind("<Control-o>", lambda x: palette_op("open"))
-root.bind("<Control-e>", lambda x: palette_op("eval"))
-root.bind("<Control-m>", lambda x: palette_op("config"))
-root.bind("<Control-p>", lambda x: palette_op())
-root.bind("<Control-s>", save_file)
-root.bind("<Control-u>", lambda x: save_config())
-root.bind("<Control-C>", lambda x: open_config())
-root.bind("<Control-w>", lambda x: root.quit())
-root.bind("<Configure>", lambda x: complist_configured())
-
 editor = EventText(root, borderwidth=0, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
 
+editor.selection_own()
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
+editor.bind("<Control-Left>", lambda x: goto_next_break(editor))
+editor.bind("<Control-Right>", lambda x: goto_next_break(editor, False))
+editor.bind("<Control-Shift-Left>", lambda x: goto_next_break(editor, True, True))
+editor.bind("<Control-Shift-Right>", lambda x: goto_next_break(editor, False, True))
 editor.bind("<Control-BackSpace>", lambda x: delete_to_break(editor))
 editor.bind("<Control-Delete>", lambda x: delete_to_break(editor, False))
-editor.bind("<BackSpace>", editor_backspace)
+editor.bind("<BackSpace>", lambda x: backspace(editor))
 editor.bind("<FocusIn>", lambda x: complist.place_forget())
-editor.bind("<Tab>", editor_tab)
+editor.bind("<Tab>", lambda x: insert_tab(editor))
 
 tab_spaces = 4
 
