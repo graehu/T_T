@@ -310,9 +310,11 @@ def complist_get_completions(text):
     if text.startswith("open: "):
         path = text[len("open: "):]
         path = os.path.dirname(path)
-        if path and (os.path.exists(path) or os.path.exists(os.path.expanduser(path))):
+        path = os.path.expanduser(path)
+        if path and (os.path.exists(path)):
             if not path.endswith("/"): path+="/"
             return [f"open: "+path+p+("/" if os.path.isdir(path+p)else"") for p in os.listdir(path)]
+
     
     return commands
 
@@ -393,7 +395,8 @@ font = (font, fontsize)
 if not "font" in config["theme"]: config["theme"]["font"] = font[0]
 if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
-editor = EventText(root, borderwidth=0, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], insertbackground=config["theme"]["fg"], wrap='none', height=30, width=60, undo=True, font=font, foreground=config["theme"]["fg"], background=config["theme"]["bg"])
+text_config = {"relief": "flat", "borderwidth":0, "foreground": config["theme"]["fg"], "background": config["theme"]["bg"], "font":font, "insertbackground": config["theme"]["fg"]}
+editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], wrap='none', height=30, width=60, undo=True, **text_config)
 
 editor.selection_own()
 editor.bind("<<TextModified>>", editor_modified)
@@ -431,14 +434,14 @@ for k in tags: editor.tag_configure(k, tags[k])
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x", expand=False)
 
-complist = tk.Listbox(root, relief='flat', foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font)
+complist = tk.Listbox(root, relief='flat', **{"foreground": config["theme"]["fg"], "background": config["theme"]["bg"], "font":font})
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
 complist.bind("<Configure>", complist_configured)
 complist.bind("<Escape>", lambda x: palette.focus_set())
 
-palette = tk.Entry(root, width=60, relief='flat', insertbackground=config["theme"]["fg"], foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font, highlightthickness=0)
+palette = tk.Entry(root, width=60, **text_config, highlightthickness=0)
 palette.bind("<Control-a>", palette_select_all)
 palette.bind("<KeyRelease>", lambda x: complist_update(palette.get()))
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
