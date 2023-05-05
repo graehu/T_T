@@ -32,6 +32,7 @@ def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
 def open_config(): open_file(conf_path)
 if not os.path.exists(conf_path): save_config()
 config = json.load(open(conf_path))
+debug_output = False
 
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
@@ -86,6 +87,7 @@ class EventText(tk.Text):
         result = ""
         try:
             result = self.tk.call(cmd)
+            if debug_output: print(cmd)
             if command in ("insert", "delete", "replace"):
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
@@ -170,28 +172,21 @@ def goto_next_break(widget, backwards=True, select=False):
     end = f"{line}.{cursor+end}" if line else cursor+end
     if select:
         if editor.tag_ranges(tk.SEL):
-            first = widget.index(tk.SEL_FIRST)
-            last = widget.index(tk.SEL_LAST)
-            # todo: handle cross over.
-            if editor.compare(start, ">=", end):
-                if editor.compare(end, "<=", first):
-                    editor.tag_add(tk.SEL, end, start)
-                else:
-                    editor.tag_remove(tk.SEL, end, start)
-            else:
-                if editor.compare(end, ">=", last):
-                    editor.tag_add(tk.SEL, start, end)    
-                else:    
-                    editor.tag_remove(tk.SEL, start, end)
+            anchor = editor.index("tk::anchor1")
+            old_range, new_range   = (start, anchor), (end, anchor)
+            old_range = old_range if widget.compare(old_range[0],"<=",old_range[1]) else old_range[::-1]
+            new_range = new_range if widget.compare(new_range[0],"<=",new_range[1]) else new_range[::-1]
+            editor.tag_remove(tk.SEL, *old_range)
+            editor.tag_add(tk.SEL, *new_range)
         else:
             args = (end, widget.index(tk.INSERT))
             args = args if widget.compare(args[0],"<=",args[1]) else args[::-1]
             widget.tag_add(tk.SEL, *args)
-            # this doesn't work and is incredibly frustrating. T_T
-            editor.mark_set(tk.SEL_FIRST, args[0])
-            editor.mark_set(tk.SEL_LAST, args[1])
+            if backwards: editor.mark_set("tk::anchor1", args[1])
+            else: editor.mark_set("tk::anchor1", args[0])
 
     widget.mark_set(tk.INSERT, end)
+    widget.see(end)
     return "break"
 
 
@@ -210,6 +205,7 @@ def delete_to_break(widget, backwards=True):
 def editor_select_all(event=None):
     editor.tag_add(tk.SEL, "1.0", tk.END)
     editor.mark_set(tk.INSERT, "1.0")
+    editor.mark_set("tk::anchor1", tk.END)
     editor.see(tk.INSERT)
     return "break"
 
@@ -229,6 +225,7 @@ def editor_find_text(text, forward = True):
             end_pos = f"{pos}+{len(text)}c"
             editor.tag_add(tk.SEL, pos, end_pos)
             editor.mark_set(tk.INSERT, end_pos)
+            editor.mark_set("tk::anchor1", pos)
             editor.see(tk.INSERT)
     return "break"
 
