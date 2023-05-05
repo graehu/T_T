@@ -1,9 +1,11 @@
 import re
 import os
 import json
+import zlib
 import tkinter as tk
 import tkinter.font as tkfont
 
+_T_T_icon = zlib.decompress(b'x\x9c\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd2\x02 \xcc\xc1\x06$\xe5?\xffO\x04R\x8c\xc5A\xeeN\x0c\xeb\xce\xc9\xbc\x04rX\xd2\x1d}\x1d\x19\x186\xf6s\xffId\x05\xf29\x0b<"\x8b\x19\x18\xc4TA\x98\xd13H\xe5\x03P\xd0\xce\xd3\xc51\xc4\xc2?\xf9\x87\xbf\xa2\x84\x1f\x9b\x81\x81\x81\xc2\x86\xab,+4x\xee\x1c\xd3\xec\x7f\xd4\x94\x9b)\xc0\xba\x83\xc1\xec\xe7\xc34\x06K\x86v\xc6\xdb\x07\xcc\x14\x93c\x1a\xc2\xf4\x14\xe4x*\x99\xff\xfdgg\xe8\xb9\xb8\xa9\xf3\xfa\x8e\x1f\xf9@\x93\x18<]\xfd\\\xd69%4\x01\x00 >/\xb2')
 _T_T_dir = os.path.expanduser("~/.T_T")
 _T_T_dir = _T_T_dir.replace("\\", "/")
 conf_path = "/".join((_T_T_dir, "config.json"))
@@ -47,30 +49,10 @@ class Py:
     instance  = r"\b(?P<instance>super|self|cls)\b"
     comment   = r"(?P<comment>#[^\n]*)"
     sync      = r"(?P<sync>\n)"
-    PROG      = rf"{keyword}|{builtin}|{exception}|{types}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
+    regex      = rf"{keyword}|{builtin}|{exception}|{types}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
 
 
-class Tagger:
-    regex: re = None
-    tags = {}
-    
-    def __init__(self, tags, regex):
-        self.regex = re.compile(regex, re.S)
-        self.tags = tags
-
-    def update(self, text: tk.Text, start="1.0", end=tk.END):
-        
-        for tag in text.tag_names():
-            if tag in [tk.SEL]: continue
-            text.tag_remove(tag, start, end)
-        
-        for match in self.regex.finditer(text.get(start, end)):
-            groups = {k:v for k,v in match.groupdict().items() if v}
-            for k in groups:
-                sp_start, sp_end = match.span(k)
-                sp_start = f"{start} + {sp_start}c"
-                sp_end = f"{start} + {sp_end}c"
-                text.tag_add(k, sp_start, sp_end)
+re_tags = re.compile(Py.regex, re.S)
 
 
 class EventText(tk.Text):
@@ -230,6 +212,20 @@ def editor_find_text(text, forward = True):
     return "break"
 
 
+def update_tags(text: tk.Text, start="1.0", end=tk.END):
+    for tag in text.tag_names():
+        if tag in [tk.SEL]: continue
+        text.tag_remove(tag, start, end)
+    
+    for match in re_tags.finditer(text.get(start, end)):
+        groups = {k:v for k,v in match.groupdict().items() if v}
+        for k in groups:
+            sp_start, sp_end = match.span(k)
+            sp_start = f"{start} + {sp_start}c"
+            sp_end = f"{start} + {sp_end}c"
+            text.tag_add(k, sp_start, sp_end)
+
+
 def editor_modified(event=None):
     args = editor.event_args
     start = end = editor.index(tk.INSERT)
@@ -245,7 +241,7 @@ def editor_modified(event=None):
         start = f"{line-1}.{0}"
         end = f"{line+1}.{0}"
     
-    tagger.update(editor, start, end)
+    update_tags(editor, start, end)
 
 
 def insert_tab(widget):
@@ -312,6 +308,7 @@ def complist_get_completions(text):
 
     return commands
 
+
 def complist_update(text):
     comps = complist_get_completions(text)
     matches = [word for word in comps if len(text) < len(word) and word.startswith(text)] if text else []
@@ -350,15 +347,10 @@ if os.name == "nt":
 root = tk.Tk()
 
 root.title("T_T")
+root.title("")
 
-if os.name == "nt":
-    import zlib
-    import base64
-    import tempfile
-    blank_icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBysAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
-    _, icon_path = tempfile.mkstemp()
-    open(icon_path, 'wb').write(blank_icon)
-    root.iconbitmap(default=icon_path)
+photo = tk.PhotoImage(data=_T_T_icon)
+root.wm_iconphoto(False, photo)
 
 
 root.bind("<Control-f>", lambda x: palette_op("find"))
@@ -413,8 +405,6 @@ tags[tk.SEL] = {
     "selectbackground": config["theme"]["selected"]
 }
 for k in tags: editor.tag_configure(k, tags[k])
-
-tagger = Tagger(tags, Py.PROG)
 
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x", expand=False)
