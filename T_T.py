@@ -2,6 +2,7 @@ import re
 import os
 import json
 import zlib
+import fnmatch
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -54,6 +55,9 @@ class Py:
 
 re_tags = re.compile(Py.regex, re.S)
 
+def set_debug(enabled):
+    global debug_output
+    debug_output = enabled
 
 class EventText(tk.Text):
     event_args = None
@@ -269,20 +273,24 @@ def palette_command(text, shift=False):
     if text.startswith("find: "): editor_find_text(text[len("find: "):], not shift)
     elif text.startswith("open: "): open_file(text[len("open: "):])
     elif text.startswith("config: "): open_config()
-    elif text.startswith("eval: "):
+    elif text.startswith("exec: "):
+        global debug_output
         try:
-            eval(text[len("eval: "):], globals(), locals())
+            exec(text[len("exec: "):], globals(), locals())
         except Exception as e:
             print(e)
     else:
         print(text)
 
 
+op_args = {}
 def palette_op(op=None):
     text = palette.get()
     index = text.find(":")
-    if index != -1: palette.delete(0,index+2)
-    if op: palette.insert(0, op+": ")
+    if index != -1: old_op, old_args = text.split(":", maxsplit=1); op_args[old_op] = old_args
+    palette.delete(0,tk.END)
+    if op: palette.insert(0, op+":"+(op_args[op] if op in op_args else " "))
+    palette_select_all()
     palette.focus_set()
     palette.bind("<Return>", lambda event: palette_command(palette.get()))
     palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
@@ -302,16 +310,28 @@ def complist_get_completions(text):
     if text.startswith("open: "):
         path = text[len("open: "):]
         path = os.path.dirname(path)
-        if path and os.path.exists(path):
+        if path and (os.path.exists(path) or os.path.exists(os.path.expanduser(path))):
             if not path.endswith("/"): path+="/"
             return [f"open: "+path+p+("/" if os.path.isdir(path+p)else"") for p in os.listdir(path)]
-
+    
     return commands
+
+
+def complist_get_match_func(text):
+    low_text = text.lower()
+    def open_match(word):
+        nonlocal low_text
+        if len(text) >= len(word): return False
+        word_low = word.lower()
+        return low_text in word_low or fnmatch.fnmatch(word_low, low_text)
+    if text.startswith("open: "): return open_match
+    return lambda x: len(text) < len(x) and x.startswith(low_text)
 
 
 def complist_update(text):
     comps = complist_get_completions(text)
-    matches = [word for word in comps if len(text) < len(word) and word.startswith(text)] if text else []
+    match_func = complist_get_match_func(text)
+    matches = [word for word in comps if match_func(word)] if text else []
     complist.delete(0, tk.END)
     for match in matches: complist.insert(tk.END, match)
     height = len(matches)
@@ -328,6 +348,7 @@ def complist_configured(event=None):
 
 
 def complist_insert(event=None, sel=-1):
+    if complist.size() == 0: return "break"
     if sel == -1: sel = complist.curselection()
     if sel != None and sel != -1:
         selected_text = complist.get(sel)
@@ -345,9 +366,10 @@ if os.name == "nt":
     windll.shcore.SetProcessDpiAwareness(1)
 
 root = tk.Tk()
-
-root.title("T_T")
-root.title("")
+if os.name == "nt":
+    root.title("")
+else:    
+    root.title("T_T")
 
 photo = tk.PhotoImage(data=_T_T_icon)
 root.wm_iconphoto(False, photo)
@@ -355,7 +377,7 @@ root.wm_iconphoto(False, photo)
 
 root.bind("<Control-f>", lambda x: palette_op("find"))
 root.bind("<Control-o>", lambda x: palette_op("open"))
-root.bind("<Control-e>", lambda x: palette_op("eval"))
+root.bind("<Control-e>", lambda x: palette_op("exec"))
 root.bind("<Control-m>", lambda x: palette_op("config"))
 root.bind("<Control-p>", lambda x: palette_op())
 root.bind("<Control-s>", lambda x: save_file(current_file_path))
@@ -412,6 +434,7 @@ separator.pack(fill="x", expand=False)
 complist = tk.Listbox(root, relief='flat', foreground=config["theme"]["fg"], background=config["theme"]["bg"], font=font)
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
+complist.bind("<Tab>", complist_insert)
 complist.bind("<Configure>", complist_configured)
 complist.bind("<Escape>", lambda x: palette.focus_set())
 
@@ -425,7 +448,7 @@ palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
 
-commands = ["open: ", "find: ", "eval: ", "config: "]
+commands = ["open: ", "find: ", "exec: ", "config: "]
 
 palette.pack(fill="x")
 
