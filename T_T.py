@@ -171,19 +171,19 @@ def goto_next_break(widget, backwards=True, select=False):
     start = f"{line}.{cursor}" if line else cursor
     end = f"{line}.{cursor+end}" if line else cursor+end
     if select:
-        if editor.tag_ranges(tk.SEL):
-            anchor = editor.index("tk::anchor1")
+        if widget.tag_ranges(tk.SEL):
+            anchor = widget.index("tk::anchor1")
             old_range, new_range   = (start, anchor), (end, anchor)
             old_range = old_range if widget.compare(old_range[0],"<=",old_range[1]) else old_range[::-1]
             new_range = new_range if widget.compare(new_range[0],"<=",new_range[1]) else new_range[::-1]
-            editor.tag_remove(tk.SEL, *old_range)
-            editor.tag_add(tk.SEL, *new_range)
+            widget.tag_remove(tk.SEL, *old_range)
+            widget.tag_add(tk.SEL, *new_range)
         else:
             args = (end, widget.index(tk.INSERT))
             args = args if widget.compare(args[0],"<=",args[1]) else args[::-1]
             widget.tag_add(tk.SEL, *args)
-            if backwards: editor.mark_set("tk::anchor1", args[1])
-            else: editor.mark_set("tk::anchor1", args[0])
+            if backwards: widget.mark_set("tk::anchor1", args[1])
+            else: widget.mark_set("tk::anchor1", args[0])
 
     widget.mark_set(tk.INSERT, end)
     widget.see(end)
