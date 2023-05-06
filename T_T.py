@@ -320,12 +320,11 @@ def complist_get_completions(text):
     if text.startswith("open: "):
         path = text[len("open: "):]
         path = os.path.dirname(path)
-        path = os.path.expanduser(path)
-        if path and (os.path.exists(path)):
-            if not path.endswith("/"): path+="/"
-            return [f"open: "+path+p+("/" if os.path.isdir(path+p)else"") for p in os.listdir(path)]
-
-    
+        expanded = os.path.expanduser(path)
+        if not expanded.endswith("/"): expanded += "/"
+        if expanded and (os.path.exists(expanded)):
+            if not path.endswith("/"): path += "/"
+            return [f"open: "+path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
     return commands
 
 
