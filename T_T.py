@@ -138,24 +138,38 @@ br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 def get_next_break(widget, backwards=True):
     cursor = widget.index(tk.INSERT)
     line = text = None
+    delta = -1 if backwards else 1
     if not isinstance(cursor, int):
         line, cursor = map(int, cursor.split("."))
         text = widget.get(f"{line}.0", f"{line}.end")
     else:
         text = widget.get()
     
-    if backwards: text = (text[:cursor])[::-1]
-    else: text = text[cursor:]
-    if match := br_pat.search(text): delta = match.span()[0]*(-1 if backwards else 1)
-    else: delta = len(text)*(-1 if backwards else 1)
+    if len(text) > cursor+delta and cursor+delta >= 0:
+        delta = 0
+        matches = br_pat.finditer(text,*(0, cursor) if backwards else (cursor,))
+        if matches:
+            match = list(matches)[-1] if backwards else next(matches)
+            group = match.group()
+            stride = -len(group) if backwards else len(group)
+            delta = match.span()[backwards]-cursor
+            if delta == 0:
+                while cursor+delta+stride >= 0 and cursor+delta+stride < len(text):
+                    delta = delta+stride
+                    args = (cursor+delta, cursor+delta+stride)
+                    if backwards: args = args[::-1]
+                    if not text.startswith(group, *args): break
+
+        if delta == 0: delta = -cursor if backwards else len(text)-cursor
+        if delta == 0: -1 if backwards else 1
+
     return (line, cursor, delta)
 
 
 def goto_next_break(widget, backwards=True, select=False):
-    line, cursor, end = get_next_break(widget, backwards)
-    if end == 0: end += 1*(-1 if backwards else 1)
+    line, cursor, delta = get_next_break(widget, backwards)
     start = f"{line}.{cursor}" if line else cursor
-    end = f"{line}.{cursor+end}" if line else cursor+end
+    end = f"{line}.{cursor} + {delta}c" if line else cursor+end
     if select:
         if widget.tag_ranges(tk.SEL):
             anchor = widget.index("tk::anchor1")
@@ -177,12 +191,8 @@ def goto_next_break(widget, backwards=True, select=False):
 
 
 def delete_to_break(widget, backwards=True):
-    line, cursor, end = get_next_break(widget, backwards)
-    if end != 0: pass
-    elif backwards: return backspace(widget)
-    else: return ""
-
-    args = (f"{line}.{cursor}", f"{line}.{cursor+end}") if line else (cursor, cursor+end)
+    line, cursor, delta = get_next_break(widget, backwards)
+    args = (f"{line}.{cursor}", f"{line}.{cursor} + {delta}c") if line else (cursor, cursor+delta)
     if backwards: args = args[::-1]
     widget.delete(*args)
     return "break"
