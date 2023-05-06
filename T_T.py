@@ -148,8 +148,8 @@ def get_next_break(widget, backwards=True):
     if len(text) > cursor+delta and cursor+delta >= 0:
         delta = 0
         matches = br_pat.finditer(text,*(0, cursor) if backwards else (cursor,))
-        if matches:
-            match = list(matches)[-1] if backwards else next(matches)
+        if match := next(matches, None):
+            if backwards and (matches := list(matches)): match = matches[-1]
             group = match.group()
             stride = -len(group) if backwards else len(group)
             delta = match.span()[backwards]-cursor
