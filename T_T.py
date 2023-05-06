@@ -284,7 +284,6 @@ def palette_command(text, shift=False):
     elif text.startswith("open: "): open_file(text[len("open: "):])
     elif text.startswith("config: "): open_config()
     elif text.startswith("exec: "):
-        global debug_output
         try:
             exec(text[len("exec: "):], globals(), locals())
         except Exception as e:
@@ -321,10 +320,12 @@ def complist_get_completions(text):
         path = text[len("open: "):]
         path = os.path.dirname(path)
         expanded = os.path.expanduser(path)
-        if not expanded.endswith("/"): expanded += "/"
+        if path and not expanded.endswith("/"): expanded += "/"
         if expanded and (os.path.exists(expanded)):
             if not path.endswith("/"): path += "/"
             return [f"open: "+path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
+        else:
+            return [f"open: "+p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
     return commands
 
 
@@ -371,6 +372,7 @@ def complist_insert(event=None, sel=-1):
         palette.insert(0, selected_text)
         palette.focus_set()
     return "break"
+
 
 if os.name == "nt":
     from ctypes import windll
