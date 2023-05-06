@@ -105,6 +105,8 @@ def open_file(file_path):
             text = input_file.read()
             editor.insert(tk.END, text)
         root.title(current_file_path)
+        editor.focus_set()
+        editor.mark_set(tk.INSERT, "1.0")
 
 
 def delete_word_backwords(widget):
@@ -406,7 +408,7 @@ font = (font, fontsize)
 if not "font" in config["theme"]: config["theme"]["font"] = font[0]
 if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
-text_config = {"relief": "flat", "borderwidth":0, "foreground": config["theme"]["fg"], "background": config["theme"]["bg"], "font":font, "insertbackground": config["theme"]["fg"]}
+text_config = {"relief": "flat", "borderwidth":0, "fg": config["theme"]["fg"], "bg": config["theme"]["bg"], "font":font, "insertbackground": config["theme"]["fg"]}
 editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], wrap='none', height=30, width=60, undo=True, **text_config)
 
 editor.selection_own()
@@ -445,7 +447,7 @@ for k in tags: editor.tag_configure(k, tags[k])
 separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
 separator.pack(fill="x", expand=False)
 
-complist = tk.Listbox(root, relief='flat', **{"foreground": config["theme"]["fg"], "background": config["theme"]["bg"], "font":font})
+complist = tk.Listbox(root, relief='flat', highlightcolor=config["theme"]["fg"], **{"foreground": config["theme"]["fg"], "background": config["theme"]["bg"], "font":font})
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
