@@ -375,6 +375,11 @@ def complist_insert(event=None, sel=-1):
         palette.focus_set()
     return "break"
 
+is_fullscreen = False
+def fullscreen():
+    global is_fullscreen
+    is_fullscreen = not is_fullscreen
+    root.attributes("-fullscreen", is_fullscreen)
 
 if os.name == "nt":
     from ctypes import windll
