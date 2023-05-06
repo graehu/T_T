@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 import json
 import zlib
 import fnmatch
@@ -414,7 +415,7 @@ if not "font" in config["theme"]: config["theme"]["font"] = font[0]
 if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
 
 text_config = {"relief": "flat", "borderwidth":0, "fg": config["theme"]["fg"], "bg": config["theme"]["bg"], "font":font, "insertbackground": config["theme"]["fg"]}
-editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], wrap='none', height=30, width=60, undo=True, **text_config)
+editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], wrap='none', height=30, width=80, undo=True, **text_config)
 
 editor.selection_own()
 editor.bind("<<TextModified>>", editor_modified)
@@ -472,5 +473,7 @@ palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) 
 commands = ["open: ", "find: ", "exec: ", "config: "]
 
 palette.pack(fill="x")
+
+if sys.argv[1:] and os.path.exists(sys.argv[1]): open_file(sys.argv[1])
 
 root.mainloop()
