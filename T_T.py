@@ -2,6 +2,7 @@ import re
 import os
 import sys
 import json
+import time
 import zlib
 import fnmatch
 import tkinter as tk
@@ -33,13 +34,41 @@ config = {
         "comment": {"foreground":"#008000"}
     }
 }
+
 text_config = config["text"]
+def file_set(path, data):
+    global files
+    assert(path in files)
+    files[path].update({"data": data})
+
+
+def file_get(path):
+    global files
+    if path in files: return files[path]
+    name = "file"
+    data = ""
+    ext = ".txt"
+    mtime = time.time()
+    if path and os.path.exists(path):
+        name, ext = os.path.splitext(path)
+        name = os.path.basename(name)
+        mtime = os.path.getmtime(path)
+        data = open(path).read()
+    
+    file_info = {"name": name, "data":data, "mtime":mtime, "ext":ext}
+    files[path] = file_info
+    return file_info
+
 
 os.makedirs(_T_T_dir, exist_ok=True)
 def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
-def open_config(): open_file(conf_path)
+def open_config(): file_open(conf_path)
 if not os.path.exists(conf_path): save_config()
-config = json.load(open(conf_path))
+
+
+files = {}
+file_get(conf_path)
+config = json.loads(files[conf_path]["data"])
 debug_output = False
 
 class Py:
@@ -89,29 +118,33 @@ class EventText(tk.Text):
             print(e)
         
         return result
+    
+current_file = "new_file.txt"
+for i in range(0, 1000):
+    if not os.path.exists(current_file): break
+    current_file = f"new_file{i}.txt"
+current_file = os.path.abspath(current_file)
+file_get(current_file)
 
-
-current_file_path = None
 def save_file(path):
     with open(path, "w") as output_file:
         text = editor.get(1.0, tk.END)
         output_file.write(text)
 
 
-def open_file(file_path):
+def file_open(path):
     global root
-    global current_file_path
-    file_path = os.path.expanduser(file_path)
-    file_path = os.path.abspath(file_path)
-    if os.path.exists(file_path):
-        current_file_path = file_path
-        editor.delete(1.0, tk.END)
-        with open(current_file_path, "r") as input_file:
-            text = input_file.read()
-            editor.insert(tk.END, text)
-        root.title(current_file_path)
-        editor.focus_set()
-        editor.mark_set(tk.INSERT, "1.0")
+    global current_file
+    path = os.path.expanduser(path)
+    path = os.path.abspath(path)
+    file_set(current_file, editor.get("1.0", tk.END))
+    current_file = path
+    editor.delete(1.0, tk.END)
+    file_info = file_get(current_file)
+    editor.insert(tk.END, file_info["data"])
+    root.title(file_info["name"])
+    editor.focus_set()
+    editor.mark_set(tk.INSERT, "1.0")
 
 
 def delete_word_backwords(widget):
@@ -288,7 +321,8 @@ def backspace(widget):
 
 def palette_command(text, shift=False):
     if text.startswith("find: "): editor_find_text(text[len("find: "):], not shift)
-    elif text.startswith("open: "): open_file(text[len("open: "):])
+    elif text.startswith("open: "): file_open(text[len("open: "):])
+    elif text.startswith("file: "): file_open(text[len("file: "):])
     elif text.startswith("config: "): open_config()
     elif text.startswith("exec: "):
         try:
@@ -308,8 +342,8 @@ def palette_op(op=None):
     if op: palette.insert(0, op+":"+(op_args[op] if op in op_args else " "))
     palette_select_all()
     palette.focus_set()
-    palette.bind("<Return>", lambda event: palette_command(palette.get()))
-    palette.bind("<Shift-Return>", lambda event: palette_command(palette.get(), True))
+    palette.bind("<Return>", lambda x: palette_command(palette.get()))
+    palette.bind("<Shift-Return>", lambda x: palette_command(palette.get(), True))
     return "break"
 
 
@@ -333,17 +367,19 @@ def complist_get_completions(text):
             return [f"open: "+path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
         else:
             return [f"open: "+p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
+    elif text.startswith("file: "): return [f"file: {k}" for k in files.keys()]
     return commands
 
 
 def complist_get_match_func(text):
     low_text = text.lower()
+    if ": " in low_text: _, low_text = low_text.split(": ", 1)
     def open_match(word):
-        nonlocal low_text
         if len(text) >= len(word): return False
         word_low = word.lower()
         return low_text in word_low or fnmatch.fnmatch(word_low, low_text)
     if text.startswith("open: "): return open_match
+    if text.startswith("file: "): return open_match
     return lambda x: not text or (len(text) < len(x) and x.startswith(low_text))
 
 
@@ -402,10 +438,11 @@ root.wm_iconphoto(False, photo)
 
 root.bind("<Control-f>", lambda x: palette_op("find"))
 root.bind("<Control-o>", lambda x: palette_op("open"))
+root.bind("<Control-t>", lambda x: palette_op("file"))
 root.bind("<Control-e>", lambda x: palette_op("exec"))
 root.bind("<Control-m>", lambda x: palette_op("config"))
 root.bind("<Control-p>", lambda x: palette_op())
-root.bind("<Control-s>", lambda x: save_file(current_file_path))
+root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Configure>", lambda x: complist_configured())
 
@@ -457,10 +494,10 @@ palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
 
-commands = ["open: ", "find: ", "exec: ", "config: "]
+commands = ["open: ", "file: ", "find: ", "exec: ", "config: "]
 
 palette.pack(fill="x")
 
-if sys.argv[1:] and os.path.exists(sys.argv[1]): open_file(sys.argv[1])
+if sys.argv[1:] and os.path.exists(sys.argv[1]): file_open(sys.argv[1])
 
 root.mainloop()
