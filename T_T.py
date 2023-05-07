@@ -38,7 +38,7 @@ config = {
 text_config = config["text"]
 def file_set(path, data):
     global files
-    assert(path in files)
+    assert path in files, f"'{path}' is not in files"
     files[path].update({"data": data})
 
 
@@ -54,7 +54,7 @@ def file_get(path):
         name = os.path.basename(name)
         mtime = os.path.getmtime(path)
         data = open(path).read()
-    
+
     file_info = {"name": name, "data":data, "mtime":mtime, "ext":ext}
     files[path] = file_info
     return file_info
@@ -111,18 +111,18 @@ class EventText(tk.Text):
             if command in ("insert", "delete", "replace"):
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
-            
+
             if command in ("yview", "xview"):
                 self.event_generate("<<ViewUpdated>>")
         except Exception as e:
             print(e)
-        
+
         return result
-    
-current_file = "new_file.txt"
+
+current_file = "file.txt"
 for i in range(0, 1000):
     if not os.path.exists(current_file): break
-    current_file = f"new_file{i}.txt"
+    current_file = f"file{i}.txt"
 current_file = os.path.abspath(current_file)
 file_get(current_file)
 
@@ -184,7 +184,7 @@ def get_next_break(widget, backwards=True):
         text = widget.get(f"{line}.0", f"{line}.end")
     else:
         text = widget.get()
-    
+
     if len(text) > cursor+delta and cursor+delta >= 0:
         delta = 0
         matches = br_pat.finditer(text,*(0, cursor) if backwards else (cursor,))
@@ -255,7 +255,7 @@ def editor_find_text(text, forward = True):
         if not pos:
             start = "1.0" if forward else tk.END
             pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
-        
+
         if pos:
             editor.tag_remove(tk.SEL, "1.0", tk.END)
             end_pos = f"{pos}+{len(text)}c"
@@ -270,7 +270,7 @@ def update_tags(text: tk.Text, start="1.0", end=tk.END):
     for tag in text.tag_names():
         if tag in [tk.SEL]: continue
         text.tag_remove(tag, start, end)
-    
+
     for match in re_tags.finditer(text.get(start, end)):
         groups = {k:v for k,v in match.groupdict().items() if v}
         for k in groups:
@@ -294,7 +294,7 @@ def editor_modified(event=None):
     else:
         start = f"{line-1}.{0}"
         end = f"{line+1}.{0}"
-    
+
     update_tags(editor, start, end)
 
 
@@ -367,7 +367,11 @@ def complist_get_completions(text):
             return [f"open: "+path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
         else:
             return [f"open: "+p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
-    elif text.startswith("file: "): return [f"file: {k}" for k in files.keys()]
+    elif text.startswith("file: "):
+        paths = [p for p in files.keys() if not _T_T_dir in p]
+        common = os.path.commonpath(paths)
+        return [f"file: {p.replace(common, '', 1)}" for p in paths]
+
     return commands
 
 
@@ -406,12 +410,12 @@ def complist_insert(event=None, sel=-1):
     if complist.size() == 0: return "break"
     if sel == -1: sel = complist.curselection()
     if sel != None and sel != -1:
-        selected_text = complist.get(sel)
         palette.delete(0, tk.END)
-        text = palette.get()
-        index = text.find(":")
-        if index != -1: palette.selection_range(index+2, tk.END)
-        else: palette.selection_range(0, tk.END)
+        selected_text = complist.get(sel)
+        if selected_text.startswith("file: "):
+            paths = [p for p in files.keys() if not _T_T_dir in p]
+            common = os.path.commonpath(paths)
+            selected_text = selected_text.replace("file: ", "file: "+common)
         palette.insert(0, selected_text)
         palette.focus_set()
     return "break"
@@ -429,7 +433,7 @@ if os.name == "nt":
 root = tk.Tk()
 if os.name == "nt":
     root.title("")
-else:    
+else:
     root.title("T_T")
 
 photo = tk.PhotoImage(data=_T_T_icon)
@@ -466,6 +470,13 @@ editor.bind("<Control-Delete>", lambda x: delete_to_break(editor, False))
 editor.bind("<BackSpace>", lambda x: backspace(editor))
 editor.bind("<FocusIn>", lambda x: complist.place_forget())
 editor.bind("<Tab>", lambda x: insert_tab(editor))
+
+editor.bind("<Control-f>", lambda x: palette_op("find"))
+editor.bind("<Control-o>", lambda x: palette_op("open"))
+editor.bind("<Control-t>", lambda x: palette_op("file"))
+editor.bind("<Control-e>", lambda x: palette_op("exec"))
+editor.bind("<Control-m>", lambda x: palette_op("config"))
+editor.bind("<Control-p>", lambda x: palette_op())
 
 tab_spaces = 4
 
