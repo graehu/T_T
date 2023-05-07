@@ -340,13 +340,13 @@ def complist_get_match_func(text):
         word_low = word.lower()
         return low_text in word_low or fnmatch.fnmatch(word_low, low_text)
     if text.startswith("open: "): return open_match
-    return lambda x: len(text) < len(x) and x.startswith(low_text)
+    return lambda x: not text or (len(text) < len(x) and x.startswith(low_text))
 
 
 def complist_update(text):
     comps = complist_get_completions(text)
     match_func = complist_get_match_func(text)
-    matches = [word for word in comps if match_func(word)] if text else []
+    matches = [word for word in comps if match_func(word)]
     complist.delete(0, tk.END)
     for match in matches: complist.insert(tk.END, match)
     height = len(matches)
