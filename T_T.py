@@ -12,24 +12,28 @@ _T_T_dir = os.path.expanduser("~/.T_T")
 _T_T_dir = _T_T_dir.replace("\\", "/")
 conf_path = "/".join((_T_T_dir, "config.json"))
 config = {
-    "theme":{
-        "fg": "#C0C0C0",
-        "bg": "#252525",
-        "selected": "#404040",
-        "syntax": {
-            "keyword": "#FF80FF",
-            "exception": "#880000",
-            "builtin": "#FFD700",
-            "docstring": "#008000",
-            "string": "#CC8300",
-            "types": "#FFD700",
-            "number": "#FFFFFF",
-            "classdef": "#8080FF",
-            "decorator": "#FF00FF",
-            "comment": "#008000"
-        }
+    "text": {
+        "foreground": "#C0C0C0",
+        "background": "#252525",
+        "font": ["Courier", "12"],
+        "selectforeground": "#C0C0C0",
+        "selectbackground": "#404040",
+        "insertbackground": "#C0C0C0",
+    },
+    "tags":{
+        "keyword": {"foreground":"#FF80FF"},
+        "exception": {"foreground":"#880000"},
+        "builtin": {"foreground":"#FFD700"},
+        "docstring": {"foreground":"#008000"},
+        "string": {"foreground":"#CC8300"},
+        "types": {"foreground":"#FFD700"},
+        "number": {"foreground":"#FFFFFF"},
+        "classdef": {"foreground":"#8080FF"},
+        "decorator": {"foreground":"#FF00FF"},
+        "comment": {"foreground":"#008000"}
     }
 }
+text_config = config["text"]
 
 os.makedirs(_T_T_dir, exist_ok=True)
 def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
@@ -406,17 +410,13 @@ root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Configure>", lambda x: complist_configured())
 
 
-font = config["theme"]["font"] if "font" in config["theme"] else ""
-fonts = [font, "Inconsolata", "Fira Mono", "Source Code Pro", "Anonymous Pro", "M+ 1M", "Hack", "Monolisa", "Gintronic", "Droid Sans Mono", "Dank Mono", "PragmataPro", "DejaVu Sans Mono", "Ubuntu Mono", "Bitstream Vera Sans Mono"]
-font = next((f for f in fonts if f in tkfont.families()), "Courier")
-fontsize = config["theme"]["fontsize"] if "fontsize" in config["theme"] else 12
+font, fontsize = config["text"]["font"] if "font" in config["text"] else ""
+font = font if font in tkfont.families() else "Courier"
 font = (font, fontsize)
-if not "font" in config["theme"]: config["theme"]["font"] = font[0]
-if not "fontsize" in config["theme"]: config["theme"]["fontsize"] = font[1]
+if not "font" in config["text"]: config["text"]["font"] = font
 
-text_config = {"relief": "flat", "borderwidth":0, "fg": config["theme"]["fg"], "bg": config["theme"]["bg"], "font":font, "insertbackground": config["theme"]["fg"]}
-editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["theme"]["selected"], wrap='none', height=30, width=80, undo=True, **text_config)
-
+text_config.update({"font":font, "relief": "flat", "borderwidth":0})
+editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["text"]["selectbackground"], wrap='none', height=30, width=80, undo=True, **text_config)
 editor.selection_own()
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
@@ -434,26 +434,13 @@ tab_spaces = 4
 
 editor.pack(expand=True, fill="both")
 
-tags = {}
-for k in config["theme"]["syntax"]:
-    tags[k] = {
-        "foreground": config["theme"]["syntax"][k],
-        "selectforeground": config["theme"]["syntax"][k],
-        "selectbackground": config["theme"]["selected"]
-        }
+tags = config["tags"]
+for k in config["tags"]: editor.tag_configure(k, tags[k])
 
-tags[tk.SEL] = {
-    'foreground': config["theme"]["fg"],
-    'background': config["theme"]["selected"],
-    "selectforeground": config["theme"]["fg"],
-    "selectbackground": config["theme"]["selected"]
-}
-for k in tags: editor.tag_configure(k, tags[k])
-
-separator = tk.Frame(root, bg=config["theme"]["fg"], height=1, bd=0)
+separator = tk.Frame(root, bg=config["text"]["foreground"], height=1, bd=0)
 separator.pack(fill="x", expand=False)
 
-complist = tk.Listbox(root, relief='flat', highlightcolor=config["theme"]["fg"], **{"foreground": config["theme"]["fg"], "background": config["theme"]["bg"], "font":font})
+complist = tk.Listbox(root, relief='flat', highlightcolor=config["text"]["foreground"], **{"foreground": config["text"]["foreground"], "background": config["text"]["background"], "font":font})
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
