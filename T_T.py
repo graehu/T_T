@@ -371,17 +371,20 @@ def complist_get_completions(text):
         paths = [p for p in files.keys() if not _T_T_dir in p]
         common = os.path.commonpath(paths)
         return [p.replace(common, '', 1) for p in paths]
-
-    return commands
+    elif not ":" in text: return commands
+    return []
 
 
 def complist_get_match_func(text):
     low_text = text.lower()
-    if ": " in low_text: _, low_text = low_text.split(": ", 1)
+    if ": " in low_text: cmd, low_text = low_text.split(": ", 1)
+    dirname, basename = os.path.split(low_text)
+
     def open_match(word):
         if len(low_text) >= len(word): return False
-        word_low = word.lower()
-        return low_text in word_low or fnmatch.fnmatch(word_low, low_text)
+        low_word = word.lower()
+        base_word = low_word.replace(dirname, "")
+        return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
     if text.startswith("open: "): return open_match
     if text.startswith("file: "): return open_match
     return lambda x: not text or (len(text) < len(x) and x.startswith(low_text))
@@ -412,6 +415,7 @@ def complist_insert(event=None, sel=-1):
     if sel != None and sel != -1:
         cmd = palette.get()
         if ":" in cmd: cmd = cmd[:cmd.index(":")]+": "
+        else: cmd = ""
         palette.delete(0, tk.END)
         selected_text = complist.get(sel)
         if cmd == "file: ":
