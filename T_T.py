@@ -364,13 +364,13 @@ def complist_get_completions(text):
         if path and not expanded.endswith("/"): expanded += "/"
         if expanded and (os.path.exists(expanded)):
             if not path.endswith("/"): path += "/"
-            return [f"open: "+path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
+            return [path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
         else:
-            return [f"open: "+p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
+            return [p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
     elif text.startswith("file: "):
         paths = [p for p in files.keys() if not _T_T_dir in p]
         common = os.path.commonpath(paths)
-        return [f"file: {p.replace(common, '', 1)}" for p in paths]
+        return [p.replace(common, '', 1) for p in paths]
 
     return commands
 
@@ -379,7 +379,7 @@ def complist_get_match_func(text):
     low_text = text.lower()
     if ": " in low_text: _, low_text = low_text.split(": ", 1)
     def open_match(word):
-        if len(text) >= len(word): return False
+        if len(low_text) >= len(word): return False
         word_low = word.lower()
         return low_text in word_low or fnmatch.fnmatch(word_low, low_text)
     if text.startswith("open: "): return open_match
@@ -410,13 +410,15 @@ def complist_insert(event=None, sel=-1):
     if complist.size() == 0: return "break"
     if sel == -1: sel = complist.curselection()
     if sel != None and sel != -1:
+        cmd = palette.get()
+        if ":" in cmd: cmd = cmd[:cmd.index(":")]+": "
         palette.delete(0, tk.END)
         selected_text = complist.get(sel)
-        if selected_text.startswith("file: "):
+        if cmd == "file: ":
             paths = [p for p in files.keys() if not _T_T_dir in p]
             common = os.path.commonpath(paths)
-            selected_text = selected_text.replace("file: ", "file: "+common)
-        palette.insert(0, selected_text)
+            selected_text = common+selected_text
+        palette.insert(0, cmd+selected_text)
         palette.focus_set()
     return "break"
 
