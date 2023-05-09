@@ -296,16 +296,13 @@ def backspace(widget):
     return None
 
 
+# -----------------------------------------------------
+
 def palette_command(text, shift=False):
     if ": " in text:
-        cmd, text = text.split(": ")
+        cmd, text = text.split(": ", maxsplit=1)
         if cmd in commands:
             commands[cmd]["command"]((text, shift))
-
-
-def command_exec(text):
-    try: exec(text, globals(), locals())
-    except Exception as e: print(e)
 
 
 def palette_op(op=None):
@@ -329,61 +326,15 @@ def palette_select_all(event=None):
     else: palette.selection_range(0, tk.END)
     return "break"
 
-
-def complist_open_completions(text):
-    low_text = text.lower()
-    dirname, basename = os.path.split(low_text)
-    ret = []
-    def file_filter(word):
-        if len(low_text) >= len(word): return False
-        low_word = word.lower()
-        base_word = low_word.replace(dirname, "")
-        return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
-    path = os.path.dirname(text)
-    expanded = os.path.expanduser(path)
-    if path and not expanded.endswith("/"): expanded += "/"
-    if expanded and (os.path.exists(expanded)):
-        if not path.endswith("/"): path += "/"
-        ret = [path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
-    else:
-        ret = [p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
-    return list(filter(file_filter, ret))
-
-
-def complist_file_completions(text):
-    low_text = text.lower()
-    dirname, basename = os.path.split(low_text)
-    def file_filter(word):
-        if len(low_text) >= len(word): return False
-        low_word = word.lower()
-        base_word = low_word.replace(dirname, "")
-        return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
-    paths = [p for p in files.keys() if not _T_T_dir in p]
-    paths.remove(current_file)
-    if paths:
-        if len(paths) == 1: common = os.path.dirname(paths[0])
-        else: common = os.path.commonpath(paths)
-        if not common.endswith("/"): common += "/"
-        return list(filter(file_filter, [p.replace(common, '', 1) for p in paths]))
-    return []
-
-
-def command_file(text):
-    paths = [p for p in files.keys() if not _T_T_dir in p]
-    paths.remove(current_file)
-    if len(paths) == 1: common = os.path.dirname(paths[0])
-    else: common = os.path.commonpath(paths)
-    if not common.endswith("/"): common += "/"
-    file_open(common+text)
-
+# -----------------------------------------------------
 
 def complist_update(text):
     complist.delete(0, tk.END)
     width = 0; height = 0
     if ": " in text:
-        cmd, text = text.split(": ")
-        if cmd in commands and "complist_cb" in commands[cmd]:
-            matches = commands[cmd]["complist_cb"](text)
+        cmd, text = text.split(": ", maxsplit=1)
+        if cmd in commands and "match_cb" in commands[cmd]:
+            matches = commands[cmd]["match_cb"](text)
             for match in matches: complist.insert(tk.END, match)
             height = complist.size()
             width = len(max(matches, key=len))+1 if height else 0
@@ -411,14 +362,71 @@ def complist_insert(event=None, sel=-1):
         palette.focus_set()
     return "break"
 
+# -----------------------------------------------------
 
-def command_register(name, command, complist_cb=None):
+def cmd_open_matches(text):
+    low_text = text.lower()
+    dirname, basename = os.path.split(low_text)
+    ret = []
+    def file_filter(word):
+        if len(low_text) >= len(word): return False
+        low_word = word.lower()
+        base_word = low_word.replace(dirname, "")
+        return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
+    path = os.path.dirname(text)
+    expanded = os.path.expanduser(path)
+    if path and not expanded.endswith("/"): expanded += "/"
+    if expanded and (os.path.exists(expanded)):
+        if not path.endswith("/"): path += "/"
+        ret = [path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
+    else:
+        ret = [p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
+    return list(filter(file_filter, ret))
+
+
+def cmd_file_matches(text):
+    low_text = text.lower()
+    dirname, basename = os.path.split(low_text)
+    def file_filter(word):
+        if len(low_text) >= len(word): return False
+        low_word = word.lower()
+        base_word = low_word.replace(dirname, "")
+        return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
+    paths = [p for p in files.keys() if not _T_T_dir in p]
+    paths.remove(current_file)
+    if paths:
+        if len(paths) == 1: common = os.path.dirname(paths[0])
+        else: common = os.path.commonpath(paths)
+        if not common.endswith("/"): common += "/"
+        return list(filter(file_filter, [p.replace(common, '', 1) for p in paths]))
+    return []
+
+
+def cmd_exec(text):
+    try: exec(text, globals(), locals())
+    except Exception as e: print(e)
+
+
+def cmd_file(text):
+    paths = [p for p in files.keys() if not _T_T_dir in p]
+    paths.remove(current_file)
+    if len(paths) == 1: common = os.path.dirname(paths[0])
+    else: common = os.path.commonpath(paths)
+    if not common.endswith("/"): common += "/"
+    file_open(common+text)
+
+
+def cmd_register(name, command, match_cb=None, shortcut=None):
     global commands
     assert not name in commands, f"'{name}' already registered "
     cmd = {"command": command}
-    if complist_cb: cmd.update({"complist_cb": complist_cb})
+    if match_cb: cmd.update({"match_cb": match_cb})
+    if shortcut:
+        root.bind(shortcut, lambda x: palette_op(name))
+        editor.bind(shortcut, lambda x: palette_op(name))
     commands[name] = cmd
 
+# -----------------------------------------------------
 
 is_fullscreen = False
 def fullscreen():
@@ -441,12 +449,6 @@ else:
 photo = tk.PhotoImage(data=_T_T_icon)
 root.wm_iconphoto(False, photo)
 
-
-root.bind("<Control-f>", lambda x: palette_op("find"))
-root.bind("<Control-o>", lambda x: palette_op("open"))
-root.bind("<Control-t>", lambda x: palette_op("file"))
-root.bind("<Control-e>", lambda x: palette_op("exec"))
-root.bind("<Control-m>", lambda x: palette_op("config"))
 root.bind("<Control-p>", lambda x: palette_op())
 root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Control-w>", lambda x: root.quit())
@@ -472,12 +474,6 @@ editor.bind("<Control-Delete>", lambda x: delete_to_break(editor, False))
 editor.bind("<BackSpace>", lambda x: backspace(editor))
 editor.bind("<FocusIn>", lambda x: complist.place_forget())
 editor.bind("<Tab>", lambda x: insert_tab(editor))
-
-editor.bind("<Control-f>", lambda x: palette_op("find"))
-editor.bind("<Control-o>", lambda x: palette_op("open"))
-editor.bind("<Control-t>", lambda x: palette_op("file"))
-editor.bind("<Control-e>", lambda x: palette_op("exec"))
-editor.bind("<Control-m>", lambda x: palette_op("config"))
 editor.bind("<Control-p>", lambda x: palette_op())
 
 editor.pack(expand=True, fill="both")
@@ -505,12 +501,11 @@ palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
 
-
-command_register("open", lambda x: file_open(x[0]), complist_open_completions)
-command_register("file", lambda x: command_file(x[0]), complist_file_completions)
-command_register("find", lambda x: editor_find_text(*x))
-command_register("exec", lambda x: command_exec(x[0]))
-command_register("config", lambda _: open_config())
+cmd_register("open", lambda x: file_open(x[0]), cmd_open_matches, "<Control-o>")
+cmd_register("file", lambda x: cmd_file(x[0]), cmd_file_matches, "<Control-t>")
+cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
+cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
+cmd_register("config", lambda _: open_config(), shortcut="<Control-m>")
 
 palette.pack(fill="x")
 
