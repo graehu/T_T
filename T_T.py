@@ -8,9 +8,52 @@ import fnmatch
 import tkinter as tk
 import tkinter.font as tkfont
 
+class Py:
+    keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
+    exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
+    builtin   = r"([^.'\"\\#]\b|^)(?P<builtin>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
+    docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
+    string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
+    types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
+    number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
+    classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
+    decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
+    instance  = r"\b(?P<instance>super|self|cls)\b"
+    comment   = r"(?P<comment>#[^\n]*)"
+    sync      = r"(?P<sync>\n)"
+    regex      = rf"{keyword}|{builtin}|{exception}|{types}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
+
+
+class EventText(tk.Text):
+    event_args = None
+    def __init__(self, *args, **kwargs):
+        tk.Text.__init__(self, *args, **kwargs)
+        self._orig = self._w + "_orig"
+        self.tk.call("rename", self._w, self._orig)
+        self.tk.createcommand(self._w, self._proxy)
+
+    def _proxy(self, command, *args):
+        cmd = (self._orig, command) + args
+        result = ""
+        try:
+            result = self.tk.call(cmd)
+            if debug_output: print(cmd)
+            if command in ("insert", "delete", "replace"):
+                self.event_args = args
+                self.event_generate("<<TextModified>>")
+
+            if command in ("yview", "xview"):
+                self.event_generate("<<ViewUpdated>>")
+        except Exception as e:
+            print(e)
+
+        return result
+
+
 _T_T_icon = zlib.decompress(b'x\x9c\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd2\x02 \xcc\xc1\x06$\xe5?\xffO\x04R\x8c\xc5A\xeeN\x0c\xeb\xce\xc9\xbc\x04rX\xd2\x1d}\x1d\x19\x186\xf6s\xffId\x05\xf29\x0b<"\x8b\x19\x18\xc4TA\x98\xd13H\xe5\x03P\xd0\xce\xd3\xc51\xc4\xc2?\xf9\x87\xbf\xa2\x84\x1f\x9b\x81\x81\x81\xc2\x86\xab,+4x\xee\x1c\xd3\xec\x7f\xd4\x94\x9b)\xc0\xba\x83\xc1\xec\xe7\xc34\x06K\x86v\xc6\xdb\x07\xcc\x14\x93c\x1a\xc2\xf4\x14\xe4x*\x99\xff\xfdgg\xe8\xb9\xb8\xa9\xf3\xfa\x8e\x1f\xf9@\x93\x18<]\xfd\\\xd69%4\x01\x00 >/\xb2')
 _T_T_dir = os.path.expanduser("~/.T_T")
 _T_T_dir = _T_T_dir.replace("\\", "/")
+os.makedirs(_T_T_dir, exist_ok=True)
 conf_path = "/".join((_T_T_dir, "config.json"))
 config = {
     "text": {
@@ -34,11 +77,37 @@ config = {
         "comment": {"foreground":"#008000"}
     }
 }
+
+
+files = {}
 commands = {}
 op_args = {}
 tab_spaces = 4
 current_file = ""
-text_config = config["text"]
+debug_output = False
+is_fullscreen = False
+if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
+re_tags = re.compile(Py.regex, re.S)
+br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
+
+
+def apply_config():
+    config = json.loads(open(conf_path).read())
+    text_config = config["text"]
+    tags_config = config["tags"]
+    font, fontsize = text_config["font"] if "font" in text_config else ""
+    font = font if font in tkfont.families() else "Courier"
+    font = (font, fontsize)
+    if not "font" in text_config: text_config["font"] = font
+    text_config.update({"font":font, "relief": "flat", "borderwidth":0})
+    editor.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
+    palette.configure(highlightthickness=0, **text_config)
+    complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
+    separator.configure(bg=text_config["foreground"])
+    for k in editor.tag_names(): editor.tag_delete(k)
+    for k in tags_config: editor.tag_configure(k, tags_config[k])
+    update_tags(editor)
+
 
 def get_common_path(paths):
     if len(paths) == 1: common = os.path.dirname(paths[0])
@@ -83,62 +152,9 @@ def file_get(path):
     return file_info
 
 
-os.makedirs(_T_T_dir, exist_ok=True)
-def save_config(): json.dump(config, open(conf_path, "w"), indent=4)
-def open_config(): file_open(conf_path)
-if not os.path.exists(conf_path): save_config()
-
-
-files = {}
-config = json.loads(file_get(conf_path)["data"])
-debug_output = False
-
-class Py:
-    keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
-    exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
-    builtin   = r"([^.'\"\\#]\b|^)(?P<builtin>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
-    docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
-    string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
-    number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
-    classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
-    decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
-    instance  = r"\b(?P<instance>super|self|cls)\b"
-    comment   = r"(?P<comment>#[^\n]*)"
-    sync      = r"(?P<sync>\n)"
-    regex      = rf"{keyword}|{builtin}|{exception}|{types}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
-
-
-re_tags = re.compile(Py.regex, re.S)
-
 def set_debug(enabled):
     global debug_output
     debug_output = enabled
-
-class EventText(tk.Text):
-    event_args = None
-    def __init__(self, *args, **kwargs):
-        tk.Text.__init__(self, *args, **kwargs)
-        self._orig = self._w + "_orig"
-        self.tk.call("rename", self._w, self._orig)
-        self.tk.createcommand(self._w, self._proxy)
-
-    def _proxy(self, command, *args):
-        cmd = (self._orig, command) + args
-        result = ""
-        try:
-            result = self.tk.call(cmd)
-            if debug_output: print(cmd)
-            if command in ("insert", "delete", "replace"):
-                self.event_args = args
-                self.event_generate("<<TextModified>>")
-
-            if command in ("yview", "xview"):
-                self.event_generate("<<ViewUpdated>>")
-        except Exception as e:
-            print(e)
-
-        return result
 
 
 def save_file(path):
@@ -163,7 +179,6 @@ def file_open(path):
     editor.mark_set(tk.INSERT, "1.0")
 
 
-br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 def get_next_break(widget, backwards=True):
     cursor = widget.index(tk.INSERT)
     line = text = None
@@ -433,7 +448,6 @@ def cmd_register(name, command, match_cb=None, shortcut=None):
 
 # -----------------------------------------------------
 
-is_fullscreen = False
 def fullscreen():
     global is_fullscreen
     is_fullscreen = not is_fullscreen
@@ -457,14 +471,7 @@ root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Configure>", lambda x: complist_configured())
 
-
-font, fontsize = config["text"]["font"] if "font" in config["text"] else ""
-font = font if font in tkfont.families() else "Courier"
-font = (font, fontsize)
-if not "font" in config["text"]: config["text"]["font"] = font
-
-text_config.update({"font":font, "relief": "flat", "borderwidth":0})
-editor = EventText(root, highlightthickness=0, inactiveselectbackground=config["text"]["selectbackground"], wrap='none', height=30, width=80, undo=True, **text_config)
+editor = EventText(root, highlightthickness=0, wrap='none', height=30, width=80, undo=True)
 editor.selection_own()
 editor.bind("<<TextModified>>", editor_modified)
 editor.bind("<Control-a>", editor_select_all)
@@ -481,20 +488,17 @@ editor.bind("<Control-p>", lambda x: palette_op())
 
 editor.pack(expand=True, fill="both")
 
-tags = config["tags"]
-for k in config["tags"]: editor.tag_configure(k, tags[k])
-
-separator = tk.Frame(root, bg=config["text"]["foreground"], height=1, bd=0)
+separator = tk.Frame(root, height=1, bd=0)
 separator.pack(fill="x", expand=False)
 
-complist = tk.Listbox(root, relief='flat', highlightcolor=config["text"]["foreground"], **{"foreground": config["text"]["foreground"], "background": config["text"]["background"], "font":font})
+complist = tk.Listbox(root, relief='flat')
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
 complist.bind("<Configure>", complist_configured)
 complist.bind("<Escape>", lambda x: palette.focus_set())
 
-palette = tk.Entry(root, width=60, **text_config, highlightthickness=0)
+palette = tk.Entry(root, width=60)
 palette.bind("<Control-a>", palette_select_all)
 palette.bind("<KeyRelease>", lambda x: complist_update(palette.get()))
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
@@ -508,9 +512,10 @@ cmd_register("open", lambda x: file_open(x[0]), cmd_open_matches, "<Control-o>")
 cmd_register("file", lambda x: cmd_file(x[0]), cmd_file_matches, "<Control-t>")
 cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
-cmd_register("config", lambda _: open_config(), shortcut="<Control-m>")
+# cmd_register("config", lambda _: open_config(), shortcut="<Control-m>")
 
 palette.pack(fill="x")
+apply_config()
 
 if sys.argv[1:] and os.path.exists(sys.argv[1]): file_open(sys.argv[1])
 else:
