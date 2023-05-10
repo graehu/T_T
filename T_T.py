@@ -43,39 +43,43 @@ text_config = config["text"]
 def get_common_path(paths):
     if len(paths) == 1: common = os.path.dirname(paths[0])
     else: common = os.path.commonpath(paths)
-    common = common.replace("\\","/")
-    if not common.endswith("/"): common += "/"
-    if ":" in common: id = common.index(":"); common = common[:id].lower()+common[id:]
+    if not common.endswith(os.path.sep): common += os.path.sep
+    # if ":" in common: id = common.index(":"); common = common[:id].lower()+common[id:]
     return common
 
+def list_path(path):
+    if path == os.curdir: return os.listdir(path)
+    else: return [os.path.join(path, p) for p in os.listdir(path)]
+
+
+def file_to_key(path): return os.path.abspath(path).replace("\\", "/").lower()
 
 def file_set(path, data):
     global files
-    assert path in files, f"'{path}' is not in files"
-    files[path].update({"data": data})
+    key = file_to_key(path)
+    assert key in files, f"'{path}' is not in files"
+    files[key].update({"data": data})
 
 
 def file_get(path):
     global files
-    
-    if path in files:
-        print("getting: "+path)
-        return files[path]
+    key = os.path.abspath(path).replace("\\", "/").lower()
+    if key in files:
+        print("getting: "+key)
+        return files[key]
     name = "file"
     data = ""
     ext = ".txt"
     mtime = time.time()
-    path = path.replace("\\", "/")
     if path and os.path.exists(path):
-        path = os.path.abspath(path).replace("\\", "/")
         name, ext = os.path.splitext(path)
         name = os.path.basename(name)
         mtime = os.path.getmtime(path)
         data = open(path).read()
 
-    file_info = {"name": name, "data":data, "mtime":mtime, "ext":ext}
-    print("adding: "+path)
-    files[path] = file_info
+    file_info = {"path":path, "name": name, "data":data, "mtime":mtime, "ext":ext}
+    print("adding: "+key)
+    files[key] = file_info
     return file_info
 
 
@@ -114,7 +118,6 @@ def set_debug(enabled):
 class EventText(tk.Text):
     event_args = None
     def __init__(self, *args, **kwargs):
-        """A text widget that report on internal widget commands"""
         tk.Text.__init__(self, *args, **kwargs)
         self._orig = self._w + "_orig"
         self.tk.call("rename", self._w, self._orig)
@@ -149,7 +152,7 @@ def file_open(path):
     global current_file
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
-    if ":" in path: id = path.index(":"); path = path[:id].lower()+path[id:]
+    # if ":" in path: id = path.index(":"); path = path[:id].lower()+path[id:]
     if current_file: file_set(current_file, editor.get("1.0", tk.END))
     current_file = path
     editor.delete(1.0, tk.END)
@@ -385,13 +388,8 @@ def cmd_open_matches(text):
         return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
     path = os.path.dirname(text)
     expanded = os.path.expanduser(path)
-    if path and not expanded.endswith("/"): expanded += "/"
-    if expanded and (os.path.exists(expanded)):
-        if not path.endswith("/"): path += "/"
-        ret = [path+p+("/" if os.path.isdir(expanded+p)else"") for p in os.listdir(expanded)]
-    else:
-        ret = [p+("/" if os.path.isdir(p) else "") for p in os.listdir(".")]
-    ret = [r.replace("\\","/") for r in ret]
+    if expanded and (os.path.exists(expanded)): ret = list_path(expanded)
+    else: ret = list_path(os.curdir)
     return list(filter(file_filter, ret))
 
 
@@ -403,10 +401,9 @@ def cmd_file_matches(text):
         low_word = word.lower()
         base_word = low_word.replace(dirname, "")
         return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
-    paths = [p for p in files.keys() if not _T_T_dir in p]
+    paths = [files[p]["path"] for p in files.keys() if not _T_T_dir in files[p]["path"]]
     paths.remove(current_file)
     if paths:
-        paths = [p.replace("\\", "/") for p in paths]
         common = get_common_path(paths)
         return list(filter(file_filter, [p.replace(common, '', 1) for p in paths]))
     return []
@@ -418,11 +415,10 @@ def cmd_exec(text):
 
 
 def cmd_file(text):
-    print(text)
-    paths = [p for p in files.keys() if not _T_T_dir in p]
+    paths = [files[p]["path"] for p in files.keys() if not _T_T_dir in files[p]["path"]]
     paths.remove(current_file)
-    common = get_common_path(paths)
-    file_open(common+text)
+    path = os.path.join(get_common_path(paths), text)
+    file_open(path)
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
@@ -449,10 +445,8 @@ if os.name == "nt":
     windll.shcore.SetProcessDpiAwareness(1)
 
 root = tk.Tk()
-if os.name == "nt":
-    root.title("")
-else:
-    root.title("T_T")
+if os.name == "nt": root.title("")
+else: root.title("T_T")
 
 
 photo = tk.PhotoImage(data=_T_T_icon)
