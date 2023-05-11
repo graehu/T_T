@@ -111,11 +111,12 @@ def apply_config():
     update_tags(editor)
 
 
-def get_common_path(paths):
-    if len(paths) == 1: common = os.path.dirname(paths[0])
-    else: common = os.path.commonpath(paths)
-    if not common.endswith(os.path.sep): common += os.path.sep
-    return common
+def shorten_paths(paths):
+    tails, tops = list(zip(*[os.path.split(p) for p in paths]))
+    while len(set(tops)) != len(tops):
+        tails, new_tops = list(zip(*[os.path.split(t) for t in tails]))
+        tops = [os.path.join(t, tops) for t in new_tops]
+    return tops
 
 def list_path(path):
     if path == os.curdir: return os.listdir(path)
@@ -421,9 +422,7 @@ def cmd_file_matches(text):
         return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
     paths = [files[p]["path"] for p in files.keys()]
     paths.remove(current_file)
-    if paths:
-        common = get_common_path(paths)
-        return list(filter(file_filter, [p.replace(common, '', 1) for p in paths]))
+    if paths: return list(filter(file_filter, shorten_paths(paths)))
     return []
 
 
@@ -435,7 +434,9 @@ def cmd_exec(text):
 def cmd_file(text):
     paths = [files[p]["path"] for p in files.keys()]
     paths.remove(current_file)
-    path = os.path.join(get_common_path(paths), text)
+    paths = zip(paths, shorten_paths(paths))
+    path = next((x for x, y in paths if y.endswith(text)), "FAK")
+    print("path: "+path)
     file_open(path)
 
 
