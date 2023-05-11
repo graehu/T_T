@@ -115,7 +115,7 @@ def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
     while len(set(tops)) != len(tops):
         tails, new_tops = list(zip(*[os.path.split(t) for t in tails]))
-        tops = [os.path.join(t, tops) for t in new_tops]
+        tops = [os.path.join(t1, t2) for t1,t2 in zip(new_tops, tops)]
     return tops
 
 def list_path(path):
@@ -435,9 +435,8 @@ def cmd_file(text):
     paths = [files[p]["path"] for p in files.keys()]
     paths.remove(current_file)
     paths = zip(paths, shorten_paths(paths))
-    path = next((x for x, y in paths if y.endswith(text)), "FAK")
-    print("path: "+path)
-    file_open(path)
+    path = next((x for x, y in paths if y.endswith(text)), "")
+    if path: file_open(path)
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
