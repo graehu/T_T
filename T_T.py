@@ -119,8 +119,10 @@ def shorten_paths(paths):
     return tops
 
 def list_path(path):
-    if path == os.curdir: return os.listdir(path)
-    else: return [os.path.join(path, p) for p in os.listdir(path)]
+    if path == os.curdir: paths = os.listdir(path)
+    else: paths = [os.path.join(path, p) for p in os.listdir(path)]
+    paths = [p+os.path.sep if os.path.isdir(p) else p for p in paths]
+    return paths
 
 
 def file_to_key(path): return os.path.abspath(path).replace("\\", "/").lower()
