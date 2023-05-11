@@ -86,9 +86,11 @@ tab_spaces = 4
 current_file = ""
 debug_output = False
 is_fullscreen = False
+editor = complist = separator = root = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 re_tags = re.compile(Py.regex, re.S)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
+
 
 
 def apply_config():
@@ -113,7 +115,6 @@ def get_common_path(paths):
     if len(paths) == 1: common = os.path.dirname(paths[0])
     else: common = os.path.commonpath(paths)
     if not common.endswith(os.path.sep): common += os.path.sep
-    # if ":" in common: id = common.index(":"); common = common[:id].lower()+common[id:]
     return common
 
 def list_path(path):
@@ -161,6 +162,7 @@ def save_file(path):
     with open(path, "w") as output_file:
         text = editor.get(1.0, tk.END)
         output_file.write(text)
+    if path == conf_path: apply_config()
 
 
 def file_open(path):
@@ -168,7 +170,6 @@ def file_open(path):
     global current_file
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
-    # if ":" in path: id = path.index(":"); path = path[:id].lower()+path[id:]
     if current_file: file_set(current_file, editor.get("1.0", tk.END))
     current_file = path
     editor.delete(1.0, tk.END)
@@ -371,10 +372,12 @@ def complist_update(text):
 
 
 def complist_configured(event=None):
-    complist.place_forget()
-    if complist.size() != 0:
-        height = complist.winfo_height()
-        complist.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
+    global complist
+    if complist:
+        complist.place_forget()
+        if complist.size() != 0:
+            height = complist.winfo_height()
+            complist.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
 
 
 def complist_insert(event=None, sel=-1):
@@ -416,7 +419,7 @@ def cmd_file_matches(text):
         low_word = word.lower()
         base_word = low_word.replace(dirname, "")
         return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
-    paths = [files[p]["path"] for p in files.keys() if not _T_T_dir in files[p]["path"]]
+    paths = [files[p]["path"] for p in files.keys()]
     paths.remove(current_file)
     if paths:
         common = get_common_path(paths)
@@ -430,7 +433,7 @@ def cmd_exec(text):
 
 
 def cmd_file(text):
-    paths = [files[p]["path"] for p in files.keys() if not _T_T_dir in files[p]["path"]]
+    paths = [files[p]["path"] for p in files.keys()]
     paths.remove(current_file)
     path = os.path.join(get_common_path(paths), text)
     file_open(path)
@@ -470,6 +473,7 @@ root.bind("<Control-p>", lambda x: palette_op())
 root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Configure>", lambda x: complist_configured())
+root.bind("<Control-m>", lambda _: file_open(conf_path))
 
 editor = EventText(root, highlightthickness=0, wrap='none', height=30, width=80, undo=True)
 editor.selection_own()
@@ -512,7 +516,6 @@ cmd_register("open", lambda x: file_open(x[0]), cmd_open_matches, "<Control-o>")
 cmd_register("file", lambda x: cmd_file(x[0]), cmd_file_matches, "<Control-t>")
 cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
-# cmd_register("config", lambda _: open_config(), shortcut="<Control-m>")
 
 palette.pack(fill="x")
 apply_config()
