@@ -5,6 +5,7 @@ import json
 import time
 import zlib
 import fnmatch
+import subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -109,6 +110,9 @@ if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent
 re_tags = re.compile(Py.regex, re.S)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
+def spawn(path):
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
+    subprocess.Popen([sys.executable, __file__, path], creationflags=flags)
 
 def apply_config(widget):
     config = json.loads(open(conf_path).read())
@@ -206,24 +210,27 @@ def save_file(path):
         update_tags(editor)
 
 
-def file_open(path):
+def file_open(path, new_inst=False):
     global root
     global current_file
     global editor
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
-    if current_file: file_set(current_file, editor.get("1.0", tk.END))
-    current_file = path
-    editor.pack_forget()
-    file_info = file_get(current_file)
-    editor = file_info["editor"]
-    apply_config(editor)
-    editor.pack(before=separator, expand=True, fill="both")
-    update_tags(editor)
-    root.title(file_info["name"])
-    editor.lower()
-    editor.focus_set()
-
+    if not new_inst:
+        if current_file: file_set(current_file, editor.get("1.0", tk.END))
+        current_file = path
+        editor.pack_forget()
+        file_info = file_get(current_file)
+        editor = file_info["editor"]
+        apply_config(editor)
+        editor.pack(before=separator, expand=True, fill="both")
+        update_tags(editor)
+        root.title(file_info["name"])
+        editor.lower()
+        editor.focus_set()
+    elif os.path.exists(path):
+        spawn(path)
+        
 
 def get_next_break(widget, backwards=True):
     cursor = widget.index(tk.INSERT)
@@ -469,18 +476,18 @@ def cmd_file_matches(text):
     if paths: return list(filter(file_filter, shorten_paths(paths)))
     return []
 
-
+global_exec = lambda x: exec(x, globals(), locals())
 def cmd_exec(text):
-    try: exec(text, globals(), locals())
+    try: global_exec(text)
     except Exception as e: print(e)
 
 
-def cmd_file(text):
+def cmd_file(text, new_instance=False):
     paths = [files[p]["path"] for p in files.keys()]
     paths.remove(current_file)
     paths = zip(paths, shorten_paths(paths))
     path = next((x for x, y in paths if y.endswith(text)), "")
-    if path: file_open(path)
+    if path: file_open(path, new_instance)
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
@@ -518,8 +525,8 @@ root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Configure>", lambda x: complist_configured())
 root.bind("<Control-m>", lambda _: file_open(conf_path))
 
-cmd_register("open", lambda x: file_open(x[0]), cmd_open_matches, "<Control-o>")
-cmd_register("file", lambda x: cmd_file(x[0]), cmd_file_matches, "<Control-t>")
+cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
+cmd_register("file", lambda x: cmd_file(*x), cmd_file_matches, "<Control-t>")
 cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 
