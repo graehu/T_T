@@ -16,13 +16,15 @@ class Py:
     docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
     string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
     types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
+    symbols  = r"(?P<symbols>[+-=])"
+    brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
     decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
     instance  = r"\b(?P<instance>super|self|cls)\b"
     comment   = r"(?P<comment>#[^\n]*)"
     sync      = r"(?P<sync>\n)"
-    regex      = rf"{keyword}|{builtin}|{exception}|{types}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
+    regex      = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
 
 
 class EventText(tk.Text):
@@ -52,7 +54,6 @@ class EventText(tk.Text):
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
 
-
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
         result = ""
@@ -78,27 +79,31 @@ os.makedirs(_T_T_dir, exist_ok=True)
 conf_path = "/".join((_T_T_dir, "config.json"))
 config = {
     "text": {
-        "foreground": "#C0C0C0",
-        "background": "#252525",
-        "font": ["Courier", "12"],
-        "selectforeground": "#C0C0C0",
-        "selectbackground": "#404040",
-        "insertbackground": "#C0C0C0",
+        "foreground": "gray72",
+        "background": "gray16",
+        "font": ["Fira Mono", "12"],
+        "selectforeground": "gray99",
+        "selectbackground": "gray24",
+        "insertbackground": "white",
+        "highlightthickness": 1,
+        "highlightcolor": "gray24",
+        "highlightbackground": "gray16"
     },
-    "tags":{
-        "keyword": {"foreground":"#FF80FF"},
-        "exception": {"foreground":"#880000"},
-        "builtin": {"foreground":"#FFD700"},
-        "docstring": {"foreground":"#008000"},
-        "string": {"foreground":"#CC8300"},
-        "types": {"foreground":"#FFD700"},
-        "number": {"foreground":"#FFFFFF"},
-        "classdef": {"foreground":"#8080FF"},
-        "decorator": {"foreground":"#FF00FF"},
-        "comment": {"foreground":"#008000"}
+    "tags": {
+        "keyword": { "foreground": "hotpink" },
+        "exception": { "foreground": "red" },
+        "builtin": { "foreground": "gold" },
+        "docstring": { "foreground": "skyblue" },
+        "string": { "foreground": "lightgreen" },
+        "symbols": { "foreground": "white" },
+        "brackets": { "foreground": "skyblue" },
+        "types": { "foreground": "white" },
+        "number": { "foreground": "white" },
+        "classdef": { "foreground": "skyblue" },
+        "decorator": { "foreground": "gold" },
+        "comment": { "foreground": "green" }
     }
 }
-
 
 files = {}
 commands = {}
@@ -109,6 +114,7 @@ debug_output = False
 is_fullscreen = False
 editor = complist = separator = root = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
+conf_mtime = os.path.getmtime(conf_path)
 re_tags = re.compile(Py.regex, re.S)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
@@ -118,20 +124,23 @@ def spawn(path):
     subprocess.Popen([sys.executable, __file__, path], creationflags=flags)
 
 def apply_config(widget):
-    config = json.loads(open(conf_path).read())
-    text_config = config["text"]
-    tags_config = config["tags"]
-    font, fontsize = text_config["font"] if "font" in text_config else ""
-    font = font if font in tkfont.families() else "Courier"
-    font = (font, fontsize)
-    if not "font" in text_config: text_config["font"] = font
-    text_config.update({"font":font, "relief": "flat", "borderwidth":0})
-    widget.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
-    palette.configure(highlightthickness=0, **text_config)
-    complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
-    separator.configure(bg=text_config["foreground"])
-    for k in widget.tag_names(): widget.tag_delete(k)
-    for k in tags_config: widget.tag_configure(k, tags_config[k])
+    try:
+        config = json.loads(open(conf_path).read())
+        text_config = config["text"]
+        tags_config = config["tags"]
+        font, fontsize = text_config["font"] if "font" in text_config else ""
+        font = font if font in tkfont.families() else "Courier"
+        font = (font, fontsize)
+        if not "font" in text_config: text_config["font"] = font
+        text_config.update({"font":font, "relief": "flat", "borderwidth":0})
+        widget.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
+        palette.configure(**text_config)
+        complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
+        separator.configure(bg=text_config["foreground"])
+        for k in widget.tag_names(): widget.tag_delete(k)
+        for k in tags_config: widget.tag_configure(k, tags_config[k])
+    except Exception as e:
+        print(e)
 
 
 def shorten_paths(paths):
@@ -173,7 +182,7 @@ def file_get(path):
         mtime = os.path.getmtime(path)
         data = open(path).read()
 
-    widget = EventText(root, highlightthickness=0, wrap='none', undo=True, **config["text"])
+    widget = EventText(root, wrap='none', undo=True, **config["text"])
     widget.path = path
     widget.mtime = mtime
     widget.insert(tk.END, data)
@@ -214,9 +223,6 @@ def save_file(path):
             if title.endswith("*"): root.title(title[:-1])
             editor.edits = False
             editor.mtime = os.path.getmtime(path)
-    if path == conf_path:
-        apply_config(editor)
-        update_tags(editor)
 
 
 def file_open(path, new_inst=False, read_only=False):
@@ -546,7 +552,7 @@ cmd_register("file", lambda x: cmd_file(*x), cmd_file_matches, "<Control-t>")
 cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 
-editor = EventText(root, highlightthickness=0, wrap='none', undo=True)
+editor = EventText(root, wrap='none', undo=True)
 
 separator = tk.Frame(root, height=1, bd=0)
 separator.pack(fill="x", expand=False)
@@ -583,7 +589,9 @@ else:
         file_open(new_file)
 
 def watch_file():
+    global conf_mtime
     mtime = os.path.getmtime(editor.path)
+    do_update = False
     if mtime != editor.mtime:
         if not editor.edits:
             editor.mtime = mtime
@@ -594,7 +602,16 @@ def watch_file():
             if title.endswith("*"): root.title(title[:-1])
             editor.mark_set(tk.INSERT, ins)
             editor.edits = False
+            do_update = True
         else: print("ruh roh!!")
-    editor.after(1000, watch_file)
+    mtime = os.path.getmtime(conf_path)
+
+    if mtime != conf_mtime:
+        conf_mtime = mtime
+        apply_config(editor)
+        do_update = True
+    if do_update: update_tags(editor)
+
+    editor.after(500, watch_file)
 watch_file()
 root.mainloop()
