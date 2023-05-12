@@ -26,11 +26,29 @@ class Py:
 
 class EventText(tk.Text):
     event_args = None
+    path = ""
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
         self._orig = self._w + "_orig"
         self.tk.call("rename", self._w, self._orig)
         self.tk.createcommand(self._w, self._proxy)
+        for k, v in commands.items(): self.bind(v["shortcut"], lambda _, key=k: palette_op(key))
+        self.selection_own()
+
+        self.bind("<Control-a>", lambda x: select_all(self))
+        self.bind("<Control-Left>", lambda x: goto_next_break(self))
+        self.bind("<Control-Right>", lambda x: goto_next_break(self, False))
+        self.bind("<Control-Shift-Left>", lambda x: goto_next_break(self, True, True))
+        self.bind("<Control-Shift-Right>", lambda x: goto_next_break(self, False, True))
+        self.bind("<Control-BackSpace>", lambda x: delete_to_break(self))
+        self.bind("<Control-Delete>", lambda x: delete_to_break(self, False))
+        self.bind("<BackSpace>", lambda x: backspace(self))
+        self.bind("<FocusIn>", lambda x: complist.place_forget())
+        self.bind("<Tab>", lambda x: insert_tab(self))
+        self.bind("<Control-p>", lambda x: palette_op())
+        self.bind("<Control-w>", lambda x: file_close(self.path))
+        self.bind("<<TextModified>>", lambda x: editor_modified(self))
+
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -92,8 +110,7 @@ re_tags = re.compile(Py.regex, re.S)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
 
-
-def apply_config():
+def apply_config(widget):
     config = json.loads(open(conf_path).read())
     text_config = config["text"]
     tags_config = config["tags"]
@@ -102,13 +119,12 @@ def apply_config():
     font = (font, fontsize)
     if not "font" in text_config: text_config["font"] = font
     text_config.update({"font":font, "relief": "flat", "borderwidth":0})
-    editor.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
+    widget.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
     palette.configure(highlightthickness=0, **text_config)
     complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
     separator.configure(bg=text_config["foreground"])
-    for k in editor.tag_names(): editor.tag_delete(k)
-    for k in tags_config: editor.tag_configure(k, tags_config[k])
-    update_tags(editor)
+    for k in widget.tag_names(): widget.tag_delete(k)
+    for k in tags_config: widget.tag_configure(k, tags_config[k])
 
 
 def shorten_paths(paths):
@@ -136,10 +152,12 @@ def file_set(path, data):
 
 def file_get(path):
     global files
-    key = os.path.abspath(path).replace("\\", "/").lower()
+    key = file_to_key(path)
     if key in files:
         print("getting: "+key)
-        return files[key]
+        info = files.pop(key)
+        files = {**{key:info}, **files}
+        return info
     name = "file"
     data = ""
     ext = ".txt"
@@ -150,11 +168,29 @@ def file_get(path):
         mtime = os.path.getmtime(path)
         data = open(path).read()
 
-    file_info = {"path":path, "name": name, "data":data, "mtime":mtime, "ext":ext}
+    widget = EventText(root, highlightthickness=0, wrap='none', undo=True, **config["text"])
+    widget.path = path
+    widget.insert(tk.END, data)
+    widget.mark_set(tk.INSERT, "1.0")
+    widget.edit_reset()
+    file_info = {"path":path, "name": name, "data":data, "mtime":mtime, "ext":ext, "editor":widget}
     print("adding: "+key)
-    files[key] = file_info
+    files = {**{key:file_info}, **files}
     return file_info
 
+
+def file_close(path):
+    global current_file
+    global files
+    key = file_to_key(path)
+    print("removing: "+key)
+    info = files.pop(key)
+    info["editor"].destroy()
+    current_file = ""
+    if files: file_open(next(iter(files)))
+    else: root.quit()
+
+    
 
 def set_debug(enabled):
     global debug_output
@@ -165,22 +201,28 @@ def save_file(path):
     with open(path, "w") as output_file:
         text = editor.get(1.0, tk.END)
         output_file.write(text)
-    if path == conf_path: apply_config()
+    if path == conf_path:
+        apply_config(editor)
+        update_tags(editor)
 
 
 def file_open(path):
     global root
     global current_file
+    global editor
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
     if current_file: file_set(current_file, editor.get("1.0", tk.END))
     current_file = path
-    editor.delete(1.0, tk.END)
+    editor.pack_forget()
     file_info = file_get(current_file)
-    editor.insert(tk.END, file_info["data"])
+    editor = file_info["editor"]
+    apply_config(editor)
+    editor.pack(before=separator, expand=True, fill="both")
+    update_tags(editor)
     root.title(file_info["name"])
+    editor.lower()
     editor.focus_set()
-    editor.mark_set(tk.INSERT, "1.0")
 
 
 def get_next_break(widget, backwards=True):
@@ -246,11 +288,11 @@ def delete_to_break(widget, backwards=True):
     return "break"
 
 
-def editor_select_all(event=None):
-    editor.tag_add(tk.SEL, "1.0", tk.END)
-    editor.mark_set(tk.INSERT, "1.0")
-    editor.mark_set("tk::anchor1", tk.END)
-    editor.see(tk.INSERT)
+def select_all(widget):
+    widget.tag_add(tk.SEL, "1.0", tk.END)
+    widget.mark_set(tk.INSERT, "1.0")
+    widget.mark_set("tk::anchor1", tk.END)
+    widget.see(tk.INSERT)
     return "break"
 
 
@@ -289,22 +331,22 @@ def update_tags(text: tk.Text, start="1.0", end=tk.END):
             text.tag_add(k, sp_start, sp_end)
 
 
-def editor_modified(event=None):
-    args = editor.event_args
-    start = end = editor.index(tk.INSERT)
+def editor_modified(widget):
+    args = widget.event_args
+    start = end = widget.index(tk.INSERT)
     line, _ = map(int, start.split("."))
 
-    if len(args) > 1:
+    if args and len(args) > 1:
         start = f"{line-1}.{0}"
         start += f" - {len(args[-1])}c"
-        start = editor.index(start)
+        start = widget.index(start)
         start = f"{start.split('.')[0]}.0"
         end = f"{line+1}.{0}"
     else:
         start = f"{line-1}.{0}"
         end = f"{line+1}.{0}"
 
-    update_tags(editor, start, end)
+    update_tags(widget, start, end)
 
 
 def insert_tab(widget):
@@ -447,8 +489,8 @@ def cmd_register(name, command, match_cb=None, shortcut=None):
     cmd = {"command": command}
     if match_cb: cmd.update({"match_cb": match_cb})
     if shortcut:
+        cmd.update({"shortcut": shortcut })
         root.bind(shortcut, lambda x: palette_op(name))
-        editor.bind(shortcut, lambda x: palette_op(name))
     commands[name] = cmd
 
 # -----------------------------------------------------
@@ -467,32 +509,21 @@ root = tk.Tk()
 if os.name == "nt": root.title("")
 else: root.title("T_T")
 
-
 photo = tk.PhotoImage(data=_T_T_icon)
 root.wm_iconphoto(False, photo)
+root.configure(background=config["text"]["background"])
 
 root.bind("<Control-p>", lambda x: palette_op())
 root.bind("<Control-s>", lambda x: save_file(current_file))
-root.bind("<Control-w>", lambda x: root.quit())
 root.bind("<Configure>", lambda x: complist_configured())
 root.bind("<Control-m>", lambda _: file_open(conf_path))
 
-editor = EventText(root, highlightthickness=0, wrap='none', height=30, width=80, undo=True)
-editor.selection_own()
-editor.bind("<<TextModified>>", editor_modified)
-editor.bind("<Control-a>", editor_select_all)
-editor.bind("<Control-Left>", lambda x: goto_next_break(editor))
-editor.bind("<Control-Right>", lambda x: goto_next_break(editor, False))
-editor.bind("<Control-Shift-Left>", lambda x: goto_next_break(editor, True, True))
-editor.bind("<Control-Shift-Right>", lambda x: goto_next_break(editor, False, True))
-editor.bind("<Control-BackSpace>", lambda x: delete_to_break(editor))
-editor.bind("<Control-Delete>", lambda x: delete_to_break(editor, False))
-editor.bind("<BackSpace>", lambda x: backspace(editor))
-editor.bind("<FocusIn>", lambda x: complist.place_forget())
-editor.bind("<Tab>", lambda x: insert_tab(editor))
-editor.bind("<Control-p>", lambda x: palette_op())
+cmd_register("open", lambda x: file_open(x[0]), cmd_open_matches, "<Control-o>")
+cmd_register("file", lambda x: cmd_file(x[0]), cmd_file_matches, "<Control-t>")
+cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
+cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 
-editor.pack(expand=True, fill="both")
+editor = EventText(root, highlightthickness=0, wrap='none', undo=True)
 
 separator = tk.Frame(root, height=1, bd=0)
 separator.pack(fill="x", expand=False)
@@ -504,7 +535,7 @@ complist.bind("<Tab>", complist_insert)
 complist.bind("<Configure>", complist_configured)
 complist.bind("<Escape>", lambda x: palette.focus_set())
 
-palette = tk.Entry(root, width=60)
+palette = tk.Entry(root)
 palette.bind("<Control-a>", palette_select_all)
 palette.bind("<KeyRelease>", lambda x: complist_update(palette.get()))
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
@@ -514,13 +545,8 @@ palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
 
-cmd_register("open", lambda x: file_open(x[0]), cmd_open_matches, "<Control-o>")
-cmd_register("file", lambda x: cmd_file(x[0]), cmd_file_matches, "<Control-t>")
-cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
-cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
-
 palette.pack(fill="x")
-apply_config()
+apply_config(editor)
 
 if sys.argv[1:] and os.path.exists(sys.argv[1]): file_open(sys.argv[1])
 else:
