@@ -28,6 +28,8 @@ class Py:
 class EventText(tk.Text):
     event_args = None
     path = ""
+    edits = False
+    mtime = 0
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
         self._orig = self._w + "_orig"
@@ -163,22 +165,22 @@ def file_get(path):
         info = files.pop(key)
         files = {**{key:info}, **files}
         return info
-    name = "file"
+    name = os.path.basename(path)
+    _, ext = os.path.splitext(path)
     data = ""
-    ext = ".txt"
     mtime = time.time()
     if path and os.path.exists(path):
-        name, ext = os.path.splitext(path)
-        name = os.path.basename(name)
         mtime = os.path.getmtime(path)
         data = open(path).read()
 
     widget = EventText(root, highlightthickness=0, wrap='none', undo=True, **config["text"])
     widget.path = path
+    widget.mtime = mtime
     widget.insert(tk.END, data)
     widget.mark_set(tk.INSERT, "1.0")
     widget.edit_reset()
-    file_info = {"path":path, "name": name, "data":data, "mtime":mtime, "ext":ext, "editor":widget}
+    widget.edits = False
+    file_info = {"path":path, "name": name, "data":data, "ext":ext, "editor":widget}
     print("adding: "+key)
     files = {**{key:file_info}, **files}
     return file_info
@@ -206,12 +208,18 @@ def save_file(path):
     with open(path, "w") as output_file:
         text = editor.get(1.0, tk.END)
         output_file.write(text)
+        if path == current_file:
+            file_set(path, text)
+            title = root.title()
+            if title.endswith("*"): root.title(title[:-1])
+            editor.edits = False
+            editor.mtime = os.path.getmtime(path)
     if path == conf_path:
         apply_config(editor)
         update_tags(editor)
 
 
-def file_open(path, new_inst=False):
+def file_open(path, new_inst=False, read_only=False):
     global root
     global current_file
     global editor
@@ -226,9 +234,11 @@ def file_open(path, new_inst=False):
         apply_config(editor)
         editor.pack(before=separator, expand=True, fill="both")
         update_tags(editor)
-        root.title(file_info["name"])
+        title = file_info["name"]+("*" if editor.edits else "")
+        root.title(title+("   (read only)" if read_only else ""))
         editor.lower()
         editor.focus_set()
+        editor.config(state=tk.DISABLED if read_only else tk.NORMAL)
     elif os.path.exists(path):
         spawn(path)
         
@@ -340,9 +350,14 @@ def update_tags(text: tk.Text, start="1.0", end=tk.END):
 
 
 def editor_modified(widget):
+    widget.edits = True
     args = widget.event_args
     start = end = widget.index(tk.INSERT)
     line, _ = map(int, start.split("."))
+    key = file_to_key(widget.path)
+    if key in files:
+        info = files[key]
+        root.title(info["name"]+"*")
 
     if args and len(args) > 1:
         start = f"{line-1}.{0}"
@@ -477,9 +492,9 @@ def cmd_file_matches(text):
     if paths: return list(filter(file_filter, shorten_paths(paths)))
     return []
 
-global_exec = lambda x: exec(x, globals(), locals())
+
 def cmd_exec(text):
-    try: global_exec(text)
+    try: exec(text, globals(), locals())
     except Exception as e: print(e)
 
 
@@ -558,10 +573,28 @@ apply_config(editor)
 
 if sys.argv[1:] and os.path.exists(sys.argv[1]): file_open(sys.argv[1])
 else:
-    new_file = "new_file.txt"
-    for i in range(0, 1000):
-        if not os.path.exists(new_file): break
-        new_file = f"new_file{i}.txt"
-    file_open(new_file)
+    readme = os.path.join(os.path.dirname(__file__),"README.md")
+    if os.path.exists(readme): file_open(readme, read_only=True)
+    else:
+        new_file = "new_file.txt"
+        for i in range(0, 1000):
+            if not os.path.exists(new_file): break
+            new_file = f"new_file{i}.txt"
+        file_open(new_file)
 
+def watch_file():
+    mtime = os.path.getmtime(editor.path)
+    if mtime != editor.mtime:
+        if not editor.edits:
+            editor.mtime = mtime
+            ins = editor.index(tk.INSERT)
+            editor.delete("1.0", tk.END)
+            editor.insert(tk.END, open(editor.path).read())
+            title = root.title()
+            if title.endswith("*"): root.title(title[:-1])
+            editor.mark_set(tk.INSERT, ins)
+            editor.edits = False
+        else: print("ruh roh!!")
+    editor.after(1000, watch_file)
+watch_file()
 root.mainloop()
