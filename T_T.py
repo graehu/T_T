@@ -31,6 +31,7 @@ class EventText(tk.Text):
     event_args = None
     path = name = ext = ""
     edits = extern_edits = read_only = False
+    tag_line = 1
     mtime = 0
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
@@ -193,6 +194,7 @@ def file_get(path, read_only=False):
     widget.edits = False
     widget.read_only = read_only
     widget.config(state=tk.DISABLED if read_only else tk.NORMAL)
+    apply_config(widget)
     file_info = {"path":path, "editor":widget}
     print("adding: "+key)
     files = {**{key:file_info}, **files}
@@ -241,10 +243,9 @@ def file_open(path, new_inst=False, read_only=False):
         editor.config()
         file_info = file_get(current_file, read_only)
         editor = file_info["editor"]
-        apply_config(editor)
         editor.pack(before=separator, expand=True, fill="both")
-        update_tags(editor)
         update_title(editor)
+        editor.tag_line = 1
         editor.lower()
         editor.focus_set()
     elif os.path.exists(path):
@@ -363,7 +364,6 @@ def editor_modified(widget):
     args = widget.event_args
     start = end = widget.index(tk.INSERT)
     line, _ = map(int, start.split("."))
-
     if args and len(args) > 1:
         start = f"{line-1}.{0}"
         start += f" - {len(args[-1])}c"
@@ -374,7 +374,7 @@ def editor_modified(widget):
         start = f"{line-1}.{0}"
         end = f"{line+1}.{0}"
 
-    update_tags(widget, start, end)
+    if widget.tag_line > line: update_tags(widget, start, end)
 
 
 def insert_tab(widget):
@@ -591,6 +591,7 @@ else:
 def watch_file():
     global conf_mtime
     do_update = False
+    update_time = 500
     if os.path.isfile(editor.path):
         mtime = os.path.getmtime(editor.path)
         if mtime != editor.mtime:
@@ -613,8 +614,14 @@ def watch_file():
         conf_mtime = mtime
         apply_config(editor)
         do_update = True
-    if do_update: update_tags(editor)
-
-    editor.after(500, watch_file)
+    if do_update: editor.tag_update_pos = 1
+    lines = int(editor.index('end-1c').split('.')[0])
+    if editor.tag_line < lines:
+        tag_lines = 10
+        update_tags(editor, f"{editor.tag_line}.0", f"{editor.tag_line+tag_lines}.0")
+        editor.tag_line = editor.tag_line+tag_lines
+        update_time = 10
+    
+    editor.after(update_time, watch_file)
 watch_file()
 root.mainloop()
