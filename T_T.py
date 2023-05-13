@@ -29,8 +29,8 @@ class Py:
 
 class EventText(tk.Text):
     event_args = None
-    path = ""
-    edits = False
+    path = name = ext = ""
+    edits = extern_edits = read_only = False
     mtime = 0
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
@@ -50,7 +50,6 @@ class EventText(tk.Text):
         self.bind("<BackSpace>", lambda x: backspace(self))
         self.bind("<FocusIn>", lambda x: complist.place_forget())
         self.bind("<Tab>", lambda x: insert_tab(self))
-        self.bind("<Control-p>", lambda x: palette_op())
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
 
@@ -143,6 +142,14 @@ def apply_config(widget):
         print(e)
 
 
+def update_title(widget):
+    title = widget.name
+    if widget.edits: title += "*"
+    if widget.read_only: title += "  (read only)"
+    if widget.extern_edits: title = f"!! WARNING !!    External edits to  ' {title} '  close and reopen    !! WARNING !!"
+    root.title(title)
+
+
 def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
     while len(set(tops)) != len(tops):
@@ -159,14 +166,7 @@ def list_path(path):
 
 def file_to_key(path): return os.path.abspath(path).replace("\\", "/").lower()
 
-def file_set(path, data):
-    global files
-    key = file_to_key(path)
-    assert key in files, f"'{path}' is not in files"
-    files[key].update({"data": data})
-
-
-def file_get(path):
+def file_get(path, read_only=False):
     global files
     key = file_to_key(path)
     if key in files:
@@ -178,18 +178,22 @@ def file_get(path):
     _, ext = os.path.splitext(path)
     data = ""
     mtime = time.time()
-    if path and os.path.exists(path):
+    if path and os.path.exists(path) and os.path.isfile(path):
         mtime = os.path.getmtime(path)
         data = open(path).read()
 
     widget = EventText(root, wrap='none', undo=True, **config["text"])
     widget.path = path
+    widget.name = name
+    widget.ext = ext
     widget.mtime = mtime
     widget.insert(tk.END, data)
     widget.mark_set(tk.INSERT, "1.0")
     widget.edit_reset()
     widget.edits = False
-    file_info = {"path":path, "name": name, "data":data, "ext":ext, "editor":widget}
+    widget.read_only = read_only
+    widget.config(state=tk.DISABLED if read_only else tk.NORMAL)
+    file_info = {"path":path, "editor":widget}
     print("adding: "+key)
     files = {**{key:file_info}, **files}
     return file_info
@@ -214,15 +218,15 @@ def set_debug(enabled):
 
 
 def save_file(path):
-    with open(path, "w") as output_file:
-        text = editor.get(1.0, tk.END)
-        output_file.write(text)
-        if path == current_file:
-            file_set(path, text)
-            title = root.title()
-            if title.endswith("*"): root.title(title[:-1])
-            editor.edits = False
-            editor.mtime = os.path.getmtime(path)
+    if not os.path.exists(path) or os.path.isfile(path):
+        with open(path, "w") as output_file:
+            text = editor.get(1.0, tk.END)
+            output_file.write(text)
+            if path == current_file:
+                editor.edits = False
+                editor.extern_edits = False
+                editor.mtime = os.path.getmtime(path)
+                update_title(editor)
 
 
 def file_open(path, new_inst=False, read_only=False):
@@ -232,19 +236,17 @@ def file_open(path, new_inst=False, read_only=False):
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
     if not new_inst:
-        if current_file: file_set(current_file, editor.get("1.0", tk.END))
         current_file = path
         editor.pack_forget()
-        file_info = file_get(current_file)
+        editor.config()
+        file_info = file_get(current_file, read_only)
         editor = file_info["editor"]
         apply_config(editor)
         editor.pack(before=separator, expand=True, fill="both")
         update_tags(editor)
-        title = file_info["name"]+("*" if editor.edits else "")
-        root.title(title+("   (read only)" if read_only else ""))
+        update_title(editor)
         editor.lower()
         editor.focus_set()
-        editor.config(state=tk.DISABLED if read_only else tk.NORMAL)
     elif os.path.exists(path):
         spawn(path)
         
@@ -326,10 +328,10 @@ def editor_find_text(text, backwards = False):
         start = editor.index(tk.INSERT)
         stop = (tk.END if forward else "1.0")
         if not forward: start += f"- {len(text)}c"
-        pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
+        pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop, nocase=True)
         if not pos:
             start = "1.0" if forward else tk.END
-            pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop)
+            pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop, nocase=True)
 
         if pos:
             editor.tag_remove(tk.SEL, "1.0", tk.END)
@@ -357,13 +359,10 @@ def update_tags(text: tk.Text, start="1.0", end=tk.END):
 
 def editor_modified(widget):
     widget.edits = True
+    update_title(widget)
     args = widget.event_args
     start = end = widget.index(tk.INSERT)
     line, _ = map(int, start.split("."))
-    key = file_to_key(widget.path)
-    if key in files:
-        info = files[key]
-        root.title(info["name"]+"*")
 
     if args and len(args) > 1:
         start = f"{line-1}.{0}"
@@ -434,13 +433,17 @@ def palette_select_all(event=None):
 def complist_update(text):
     complist.delete(0, tk.END)
     width = 0; height = 0
+    matches = []
     if ": " in text:
         cmd, text = text.split(": ", maxsplit=1)
         if cmd in commands and "match_cb" in commands[cmd]:
             matches = commands[cmd]["match_cb"](text)
-            for match in matches: complist.insert(tk.END, match)
-            height = complist.size()
-            width = len(max(matches, key=len))+1 if height else 0
+    else:
+        matches = [k+": " for k in commands if text in k]
+
+    for match in matches: complist.insert(tk.END, match)
+    height = complist.size()
+    width = len(max(matches, key=len))+1 if height else 0
     complist.config(height=height, width=width)
     complist.place(x=palette.winfo_x(), y=palette.winfo_y()+height) # hack to force complist_configured
 
@@ -494,7 +497,6 @@ def cmd_file_matches(text):
         base_word = low_word.replace(dirname, "")
         return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
     paths = [files[p]["path"] for p in files.keys()]
-    paths.remove(current_file)
     if paths: return list(filter(file_filter, shorten_paths(paths)))
     return []
 
@@ -506,7 +508,6 @@ def cmd_exec(text):
 
 def cmd_file(text, new_instance=False):
     paths = [files[p]["path"] for p in files.keys()]
-    paths.remove(current_file)
     paths = zip(paths, shorten_paths(paths))
     path = next((x for x, y in paths if y.endswith(text)), "")
     if path: file_open(path, new_instance)
@@ -542,7 +543,6 @@ photo = tk.PhotoImage(data=_T_T_icon)
 root.wm_iconphoto(False, photo)
 root.configure(background=config["text"]["background"])
 
-root.bind("<Control-p>", lambda x: palette_op())
 root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Configure>", lambda x: complist_configured())
 root.bind("<Control-m>", lambda _: file_open(conf_path))
@@ -590,22 +590,25 @@ else:
 
 def watch_file():
     global conf_mtime
-    mtime = os.path.getmtime(editor.path)
     do_update = False
-    if mtime != editor.mtime:
-        if not editor.edits:
-            editor.mtime = mtime
-            ins = editor.index(tk.INSERT)
-            editor.delete("1.0", tk.END)
-            editor.insert(tk.END, open(editor.path).read())
-            title = root.title()
-            if title.endswith("*"): root.title(title[:-1])
-            editor.mark_set(tk.INSERT, ins)
-            editor.edits = False
-            do_update = True
-        else: print("ruh roh!!")
+    if os.path.isfile(editor.path):
+        mtime = os.path.getmtime(editor.path)
+        if mtime != editor.mtime:
+            if not editor.edits:
+                editor.mtime = mtime
+                ins = editor.index(tk.INSERT)
+                editor.delete("1.0", tk.END)
+                editor.insert(tk.END, open(editor.path).read())
+                editor.edits = False
+                editor.extern_edits = False
+                editor.mark_set(tk.INSERT, ins)
+                do_update = True
+                update_title(editor)
+            elif not editor.extern_edits:
+                editor.extern_edits = True
+                root.bell()
+                update_title(editor)
     mtime = os.path.getmtime(conf_path)
-
     if mtime != conf_mtime:
         conf_mtime = mtime
         apply_config(editor)
