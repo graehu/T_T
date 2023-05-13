@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import re
 import os
 import sys
@@ -85,9 +86,9 @@ config = {
         "selectforeground": "gray99",
         "selectbackground": "gray24",
         "insertbackground": "white",
-        "highlightthickness": 1,
+        "highlightthickness": 8,
         "highlightcolor": "gray24",
-        "highlightbackground": "gray16"
+        "highlightbackground": "gray20"
     },
     "tags": {
         "keyword": { "foreground": "hotpink" },
@@ -108,20 +109,33 @@ config = {
 files = {}
 commands = {}
 op_args = {}
+tag_line_stride = 128
 tab_spaces = 4
 current_file = ""
 debug_output = False
 is_fullscreen = False
-editor = complist = separator = root = None
+editor = complist = root = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 re_tags = re.compile(Py.regex, re.S)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
+
+def step_tags() -> bool:
+    lines = int(editor.index('end-1c').split('.')[0])
+    if editor.tag_line < lines:
+        start, end = editor.tag_line, editor.tag_line+128
+        update_tags(editor, f"{start}.0", f"{end}.0")
+        editor.tag_line = end
+        return True
+    return False
+
+
 def spawn(path):
     flags = 0
     if os.name == "nt": flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
     subprocess.Popen([sys.executable, __file__, path], creationflags=flags)
+
 
 def apply_config(widget):
     try:
@@ -136,7 +150,6 @@ def apply_config(widget):
         widget.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
         palette.configure(**text_config)
         complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
-        separator.configure(bg=text_config["foreground"])
         for k in widget.tag_names(): widget.tag_delete(k)
         for k in tags_config: widget.tag_configure(k, tags_config[k])
     except Exception as e:
@@ -243,9 +256,10 @@ def file_open(path, new_inst=False, read_only=False):
         editor.config()
         file_info = file_get(current_file, read_only)
         editor = file_info["editor"]
-        editor.pack(before=separator, expand=True, fill="both")
+        editor.pack(before=palette, expand=True, fill="both")
         update_title(editor)
         editor.tag_line = 1
+        step_tags()
         editor.lower()
         editor.focus_set()
     elif os.path.exists(path):
@@ -364,17 +378,21 @@ def editor_modified(widget):
     args = widget.event_args
     start = end = widget.index(tk.INSERT)
     line, _ = map(int, start.split("."))
+    lines = 16
     if args and len(args) > 1:
-        start = f"{line-1}.{0}"
+        lines = len(args[-1].split("\n"))
+        start = f"{line-lines}.{0}"
         start += f" - {len(args[-1])}c"
         start = widget.index(start)
         start = f"{start.split('.')[0]}.0"
-        end = f"{line+1}.{0}"
+        end = f"{line+lines}.{0}"
     else:
-        start = f"{line-1}.{0}"
-        end = f"{line+1}.{0}"
-
-    if widget.tag_line > line: update_tags(widget, start, end)
+        start = f"{line-lines}.{0}"
+        end = f"{line+lines}.{0}"
+    
+    if lines < 64: update_tags(widget, start, end)
+    if widget.tag_line > line-lines: widget.tag_line = 1
+    
 
 
 def insert_tab(widget):
@@ -554,9 +572,6 @@ cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 
 editor = EventText(root, wrap='none', undo=True)
 
-separator = tk.Frame(root, height=1, bd=0)
-separator.pack(fill="x", expand=False)
-
 complist = tk.Listbox(root, relief='flat')
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
@@ -614,13 +629,8 @@ def watch_file():
         conf_mtime = mtime
         apply_config(editor)
         do_update = True
-    if do_update: editor.tag_update_pos = 1
-    lines = int(editor.index('end-1c').split('.')[0])
-    if editor.tag_line < lines:
-        tag_lines = 10
-        update_tags(editor, f"{editor.tag_line}.0", f"{editor.tag_line+tag_lines}.0")
-        editor.tag_line = editor.tag_line+tag_lines
-        update_time = 10
+    if do_update: editor.tag_line = 1
+    if step_tags(): update_time = 10
     
     editor.after(update_time, watch_file)
 watch_file()
