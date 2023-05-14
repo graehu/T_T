@@ -17,7 +17,7 @@ class Py:
     docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
     string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
     types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
-    symbols  = r"(?P<symbols>[+-=])"
+    symbols   = r"(?P<symbols>[+-=])"
     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
@@ -25,15 +25,14 @@ class Py:
     instance  = r"\b(?P<instance>super|self|cls)\b"
     comment   = r"(?P<comment>#[^\n]*)"
     sync      = r"(?P<sync>\n)"
-    regex      = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
+    regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
 
 
 class EventText(tk.Text):
     event_args = None
     path = name = ext = ""
     edits = extern_edits = read_only = False
-    tag_line = 1
-    mtime = 0
+    mtime = tag_line = 0
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
         self._orig = self._w + "_orig"
