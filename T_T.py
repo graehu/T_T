@@ -487,7 +487,7 @@ def complist_configured(event=None):
     global complist
     if complist:
         complist.place_forget()
-        if complist.size() != 0:
+        if complist.size() != 0 and root.focus_get() == palette:
             height = complist.winfo_height()
             pad = config["text"]["highlightthickness"] if "highlightthickness" in config["text"] else 0
             x = palette.winfo_x()+pad
@@ -526,7 +526,7 @@ def cmd_open_matches(text):
     return list(filter(file_filter, ret))
 
 
-def cmd_file_matches(text):
+def cmd_tab_matches(text):
     low_text = text.lower()
     dirname, basename = os.path.split(low_text)
     def file_filter(word):
@@ -544,11 +544,12 @@ def cmd_exec(text):
     except Exception as e: print(e)
 
 
-def cmd_file(text, new_instance=False):
+def cmd_tab(text, new_instance=False):
     paths = [files[p]["path"] for p in files.keys()]
     paths = zip(paths, shorten_paths(paths))
     path = next((x for x, y in paths if y.endswith(text)), "")
     if path: file_open(path, new_instance)
+    palette.delete(len("tab: "), tk.END)
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
@@ -586,7 +587,7 @@ root.bind("<Configure>", lambda x: complist_configured())
 root.bind("<Control-m>", lambda _: file_open(conf_path))
 
 cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
-cmd_register("file", lambda x: cmd_file(*x), cmd_file_matches, "<Control-t>")
+cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 
@@ -598,6 +599,12 @@ complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
 complist.bind("<Configure>", complist_configured)
 complist.bind("<Escape>", lambda x: palette.focus_set())
+complist.bind("<Down>", lambda _: "")
+complist.bind("<Up>", lambda _: "")
+complist.bind("<Shift_L>", lambda _: "")
+complist.bind("<Shift_R>", lambda _: "")
+complist.bind("<Key>", lambda x: (palette.insert(tk.END, x.char), palette.focus_set()))
+
 
 palette = tk.Entry(root)
 palette.bind("<Control-a>", palette_select_all)
