@@ -265,6 +265,7 @@ def file_open(path, new_inst=False, read_only=False):
     global editor
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
+    if os.path.isdir(path): return
     if not new_inst:
         current_file = path
         editor.pack_forget()
