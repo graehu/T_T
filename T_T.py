@@ -15,6 +15,10 @@ class Generic:
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     regex     = rf"{brackets}|{number}"
 
+class Json:
+    string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
+    regex     = rf"{string}|{Generic.brackets}|{Generic.number}"
+
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
     exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
@@ -33,6 +37,7 @@ class Py:
     regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
 
 re_py_tags = re.compile(Py.regex, re.S)
+re_json_tags = re.compile(Json.regex, re.S)
 re_gen_tags = re.compile(Generic.regex, re.S)
 
 class EventText(tk.Text):
@@ -207,6 +212,7 @@ def file_get(path, read_only=False):
     widget.name = name
     widget.ext = ext
     if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
+    elif ext in [".json"]: widget.tag_regex = re_json_tags
     else: widget.tag_regex = re_gen_tags
     widget.mtime = mtime
     widget.insert(tk.END, data)
@@ -345,24 +351,24 @@ def select_all(widget):
     return "break"
 
 
-def editor_find_text(text, backwards = False):
+def find_text(widget, text, backwards = False):
     forward = not backwards
     if text:
-        start = editor.index(tk.INSERT)
+        start = widget.index(tk.INSERT)
         stop = (tk.END if forward else "1.0")
         if not forward: start += f"- {len(text)}c"
-        pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop, nocase=True)
+        pos = widget.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop, nocase=True)
         if not pos:
             start = "1.0" if forward else tk.END
-            pos = editor.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop, nocase=True)
+            pos = widget.search(text, start, forwards=forward, backwards=(not forward), stopindex=stop, nocase=True)
 
         if pos:
-            editor.tag_remove(tk.SEL, "1.0", tk.END)
+            widget.tag_remove(tk.SEL, "1.0", tk.END)
             end_pos = f"{pos}+{len(text)}c"
-            editor.tag_add(tk.SEL, pos, end_pos)
-            editor.mark_set(tk.INSERT, end_pos)
-            editor.mark_set("tk::anchor1", pos)
-            editor.see(tk.INSERT)
+            widget.tag_add(tk.SEL, pos, end_pos)
+            widget.mark_set(tk.INSERT, end_pos)
+            widget.mark_set("tk::anchor1", pos)
+            widget.see(tk.INSERT)
     return "break"
 
 
@@ -576,7 +582,7 @@ root.bind("<Control-m>", lambda _: file_open(conf_path))
 
 cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
 cmd_register("file", lambda x: cmd_file(*x), cmd_file_matches, "<Control-t>")
-cmd_register("find", lambda x: editor_find_text(*x), shortcut="<Control-f>")
+cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 
 editor = EventText(root, wrap='none', undo=True)
