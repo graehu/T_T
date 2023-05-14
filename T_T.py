@@ -13,11 +13,12 @@ import tkinter.font as tkfont
 class Generic:
     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
-    regex     = rf"{brackets}|{number}"
-
+    symbols   = r"(?P<symbols>[-\*&|~\?/+%^!:\.=])"
+    regex     = rf"{brackets}|{symbols}|{number}"
+    
 class Json:
     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    regex     = rf"{string}|{Generic.brackets}|{Generic.number}"
+    regex     = rf"{string}|Generic.symbols|{Generic.brackets}|{Generic.number}"
 
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
@@ -26,7 +27,7 @@ class Py:
     docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
     string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
     types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
-    symbols   = r"(?P<symbols>[+-=])"
+    symbols   = Generic.symbols
     brackets  = Generic.brackets
     number    = Generic.number
     classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
@@ -94,7 +95,7 @@ config = {
     "text": {
         "foreground": "gray72",
         "background": "gray16",
-        "font": ["Fira Mono", "12"],
+        "font": ["Fira Mono", 10],
         "selectforeground": "gray99",
         "selectbackground": "gray24",
         "insertbackground": "white",
@@ -149,6 +150,7 @@ def spawn(path):
 
 
 def apply_config(widget):
+    global config
     try:
         config = json.loads(open(conf_path).read())
         text_config = config["text"]
@@ -487,7 +489,10 @@ def complist_configured(event=None):
         complist.place_forget()
         if complist.size() != 0:
             height = complist.winfo_height()
-            complist.place(x=palette.winfo_x(), y=palette.winfo_y()-height)
+            pad = config["text"]["highlightthickness"] if "highlightthickness" in config["text"] else 0
+            x = palette.winfo_x()+pad
+            y = (palette.winfo_y()-height)-pad
+            complist.place(x=x, y=y)
 
 
 def complist_insert(event=None, sel=-1):
