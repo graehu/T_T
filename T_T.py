@@ -235,7 +235,7 @@ def save_file(path):
     if not os.path.exists(path) or os.path.isfile(path):
         with open(path, "w") as output_file:
             text = editor.get(1.0, tk.END)
-            output_file.write(text)
+            output_file.write(text[:-1])
             if path == current_file:
                 editor.edits = False
                 editor.extern_edits = False
