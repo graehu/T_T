@@ -18,7 +18,11 @@ class Generic:
     
 class Json:
     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    regex     = rf"{string}|Generic.symbols|{Generic.brackets}|{Generic.number}"
+    regex     = rf"{string}|{Generic.symbols}|{Generic.brackets}|{Generic.number}"
+
+class Xml:
+    tag   = r"(?P<tag><\/?[\w\s]*?>|<.+?[\W]>)"
+    regex     = rf"{Json.string}|{Generic.symbols}|{Generic.brackets}|{Generic.number}|{tag}"
 
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
@@ -34,11 +38,11 @@ class Py:
     decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
     instance  = r"\b(?P<instance>super|self|cls)\b"
     comment   = r"(?P<comment>#[^\n]*)"
-    sync      = r"(?P<sync>\n)"
-    regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
+    regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{instance}|{decorator}|{number}|{classdef}"
 
 re_py_tags = re.compile(Py.regex, re.S)
 re_json_tags = re.compile(Json.regex, re.S)
+re_xml_tags = re.compile(Xml.regex, re.S)
 re_gen_tags = re.compile(Generic.regex, re.S)
 
 class EventText(tk.Text):
@@ -115,7 +119,8 @@ config = {
         "number": { "foreground": "white" },
         "classdef": { "foreground": "skyblue" },
         "decorator": { "foreground": "gold" },
-        "comment": { "foreground": "green" }
+        "comment": { "foreground": "green" },
+        "tag": { "foreground": "skyblue" }
     }
 }
 
@@ -215,6 +220,7 @@ def file_get(path, read_only=False):
     widget.ext = ext
     if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
     elif ext in [".json"]: widget.tag_regex = re_json_tags
+    elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
     else: widget.tag_regex = re_gen_tags
     widget.mtime = mtime
     widget.insert(tk.END, data)
@@ -659,7 +665,7 @@ def watch_file():
         do_update = True
     if do_update: editor.tag_line = 1
     if step_tags(): update_time = 10
-    
     editor.after(update_time, watch_file)
+
 watch_file()
 root.mainloop()
