@@ -10,6 +10,11 @@ import subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 
+class Generic:
+    brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
+    number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
+    regex     = rf"{brackets}|{number}"
+
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
     exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
@@ -18,8 +23,8 @@ class Py:
     string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
     types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
     symbols   = r"(?P<symbols>[+-=])"
-    brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
-    number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
+    brackets  = Generic.brackets
+    number    = Generic.number
     classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
     decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
     instance  = r"\b(?P<instance>super|self|cls)\b"
@@ -27,9 +32,12 @@ class Py:
     sync      = r"(?P<sync>\n)"
     regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{sync}|{instance}|{decorator}|{number}|{classdef}"
 
+re_py_tags = re.compile(Py.regex, re.S)
+re_gen_tags = re.compile(Generic.regex, re.S)
 
 class EventText(tk.Text):
     event_args = None
+    tag_regex = None
     path = name = ext = ""
     edits = extern_edits = read_only = False
     mtime = tag_line = 0
@@ -116,7 +124,6 @@ is_fullscreen = False
 editor = complist = root = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
-re_tags = re.compile(Py.regex, re.S)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
 
@@ -199,6 +206,8 @@ def file_get(path, read_only=False):
     widget.path = path
     widget.name = name
     widget.ext = ext
+    if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
+    else: widget.tag_regex = re_gen_tags
     widget.mtime = mtime
     widget.insert(tk.END, data)
     widget.mark_set(tk.INSERT, "1.0")
@@ -357,18 +366,19 @@ def editor_find_text(text, backwards = False):
     return "break"
 
 
-def update_tags(text: tk.Text, start="1.0", end=tk.END):
-    for tag in text.tag_names():
-        if tag in [tk.SEL]: continue
-        text.tag_remove(tag, start, end)
+def update_tags(text: EventText, start="1.0", end=tk.END):
+    if text.tag_regex:
+        for tag in text.tag_names():
+            if tag in [tk.SEL]: continue
+            text.tag_remove(tag, start, end)
 
-    for match in re_tags.finditer(text.get(start, end)):
-        groups = {k:v for k,v in match.groupdict().items() if v}
-        for k in groups:
-            sp_start, sp_end = match.span(k)
-            sp_start = f"{start} + {sp_start}c"
-            sp_end = f"{start} + {sp_end}c"
-            text.tag_add(k, sp_start, sp_end)
+        for match in text.tag_regex.finditer(text.get(start, end)):
+            groups = {k:v for k,v in match.groupdict().items() if v}
+            for k in groups:
+                sp_start, sp_end = match.span(k)
+                sp_start = f"{start} + {sp_start}c"
+                sp_end = f"{start} + {sp_end}c"
+                text.tag_add(k, sp_start, sp_end)
 
 
 def editor_modified(widget):
