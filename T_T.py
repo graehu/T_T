@@ -207,7 +207,6 @@ def file_get(path, read_only=False):
     widget.edits = False
     widget.read_only = read_only
     widget.config(state=tk.DISABLED if read_only else tk.NORMAL)
-    apply_config(widget)
     file_info = {"path":path, "editor":widget}
     print("adding: "+key)
     files = {**{key:file_info}, **files}
@@ -256,6 +255,7 @@ def file_open(path, new_inst=False, read_only=False):
         editor.config()
         file_info = file_get(current_file, read_only)
         editor = file_info["editor"]
+        apply_config(editor)
         editor.pack(before=palette, expand=True, fill="both")
         update_title(editor)
         editor.tag_line = 1
