@@ -2,6 +2,7 @@
 import re
 import os
 import sys
+import ast
 import json
 import time
 import zlib
@@ -13,7 +14,7 @@ import tkinter.font as tkfont
 class Generic:
     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
-    symbols   = r"(?P<symbols>[-\*&|~\?/+%^!:\.=])"
+    symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
     regex     = rf"{brackets}|{symbols}|{number}"
     
 class Json:
@@ -21,8 +22,8 @@ class Json:
     regex     = rf"{string}|{Generic.symbols}|{Generic.brackets}|{Generic.number}"
 
 class Xml:
-    tag   = r"(?P<tag><\/?[\w\s]*?>|<.+?[\W]>)"
-    regex     = rf"{Json.string}|{Generic.symbols}|{Generic.brackets}|{Generic.number}|{tag}"
+    tag       = r"(?P<brackets><\/?(?P<xmltag>[\w]+)|>)"
+    regex     = rf"{Json.string}|{Generic.symbols}|{Generic.number}|{tag}"
 
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
@@ -120,7 +121,7 @@ config = {
         "classdef": { "foreground": "skyblue" },
         "decorator": { "foreground": "gold" },
         "comment": { "foreground": "green" },
-        "tag": { "foreground": "skyblue" }
+        "xmltag": { "foreground": "skyblue" }
     }
 }
 
@@ -151,7 +152,11 @@ def step_tags() -> bool:
 def spawn(path):
     flags = 0
     if os.name == "nt": flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
-    subprocess.Popen([sys.executable, __file__, path], creationflags=flags)
+    bar_height = 38 # TODO: workout a clean/correct way to do this.
+    swidth = root.winfo_screenwidth() # width of the screen
+    geo = [root.winfo_x(), root.winfo_y()-bar_height, root.winfo_width(), root.winfo_height()]
+    geo[0] = geo[0]+geo[2] if geo[0]+(geo[2]/2) < swidth/2 else geo[0]-geo[2]
+    subprocess.Popen([sys.executable, __file__, path, f"geo={geo}"], creationflags=flags)
 
 
 def apply_config(widget):
@@ -229,6 +234,7 @@ def file_get(path, read_only=False):
     widget.edits = False
     widget.read_only = read_only
     widget.config(state=tk.DISABLED if read_only else tk.NORMAL)
+    widget.edit_modified(False)
     file_info = {"path":path, "editor":widget}
     print("adding: "+key)
     files = {**{key:file_info}, **files}
@@ -263,6 +269,8 @@ def save_file(path):
                 editor.extern_edits = False
                 editor.mtime = os.path.getmtime(path)
                 update_title(editor)
+                editor.edit_modified(0)
+            if path == conf_path: apply_config(editor)
 
 
 def file_open(path, new_inst=False, read_only=False):
@@ -474,7 +482,7 @@ def palette_select_all(event=None):
 
 def complist_update(text):
     complist.delete(0, tk.END)
-    width = 0; height = 0
+    width = height = 0
     matches = []
     if ": " in text:
         cmd, text = text.split(": ", maxsplit=1)
@@ -581,7 +589,19 @@ if os.name == "nt":
     from ctypes import windll
     windll.shcore.SetProcessDpiAwareness(1)
 
+args = sys.argv[1:]
+print(args)
 root = tk.Tk()
+for arg in args:
+    if arg.startswith("geo="):
+        x,y,width,height = ast.literal_eval(arg.replace("geo=", ""))
+        # ws = root.winfo_screenwidth()
+        # hs = root.winfo_screenheight()
+        # x = (ws/2) - (width/2)
+        # y = (hs/2) - (height/2)
+        root.geometry('%dx%d+%d+%d' % (width, height, x, y))
+        break
+
 if os.name == "nt": root.title("")
 else: root.title("T_T")
 
@@ -597,6 +617,7 @@ cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
+cmd_register("save as", lambda x: (save_file(x[0]), file_open(x[0])), cmd_open_matches, "<Control-S>")
 
 editor = EventText(root, wrap='none', undo=True)
 
@@ -626,7 +647,7 @@ palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) 
 palette.pack(fill="x")
 apply_config(editor)
 
-if sys.argv[1:] and os.path.exists(sys.argv[1]): file_open(sys.argv[1])
+if args and os.path.exists(args[0]): file_open(args[0])
 else:
     readme = os.path.join(os.path.dirname(__file__),"README.md")
     if os.path.exists(readme): file_open(readme, read_only=True)
@@ -641,30 +662,36 @@ def watch_file():
     global conf_mtime
     do_update = False
     update_time = 500
-    if os.path.isfile(editor.path):
-        mtime = os.path.getmtime(editor.path)
-        if mtime != editor.mtime:
-            if not editor.edits:
-                editor.mtime = mtime
-                ins = editor.index(tk.INSERT)
-                editor.delete("1.0", tk.END)
-                editor.insert(tk.END, open(editor.path).read())
-                editor.edits = False
-                editor.extern_edits = False
-                editor.mark_set(tk.INSERT, ins)
-                do_update = True
-                update_title(editor)
-            elif not editor.extern_edits:
-                editor.extern_edits = True
-                root.bell()
-                update_title(editor)
-    mtime = os.path.getmtime(conf_path)
-    if mtime != conf_mtime:
-        conf_mtime = mtime
-        apply_config(editor)
-        do_update = True
-    if do_update: editor.tag_line = 1
-    if step_tags(): update_time = 10
+    try:
+        # print((root.winfo_x(), root.winfo_y()))
+        if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
+        if os.path.isfile(editor.path):
+            mtime = os.path.getmtime(editor.path)
+            if mtime != editor.mtime:
+                if not editor.edits:
+                    editor.mtime = mtime
+                    ins = editor.index(tk.INSERT)
+                    editor.delete("1.0", tk.END)
+                    editor.insert(tk.END, open(editor.path).read())
+                    editor.edits = False
+                    editor.extern_edits = False
+                    editor.mark_set(tk.INSERT, ins)
+                    do_update = True
+                    update_title(editor)
+                elif not editor.extern_edits:
+                    editor.extern_edits = True
+                    root.bell()
+                    update_title(editor)
+        mtime = os.path.getmtime(conf_path)
+
+        if mtime != conf_mtime:
+            conf_mtime = mtime
+            apply_config(editor)
+            do_update = True
+        if do_update: editor.tag_line = 1
+        if step_tags(): update_time = 10
+    except Exception as e:
+        print(e)
     editor.after(update_time, watch_file)
 
 watch_file()
