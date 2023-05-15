@@ -83,8 +83,8 @@ class EventText(tk.Text):
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
 
-            if command in ("yview", "xview"):
-                self.event_generate("<<ViewUpdated>>")
+            # if command in ("yview", "xview"):
+            #     self.event_generate("<<ViewUpdated>>")
         except Exception as e:
             print(e)
 
@@ -152,7 +152,8 @@ def step_tags() -> bool:
 def spawn(path):
     flags = 0
     if os.name == "nt": flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
-    bar_height = 38 # TODO: workout a clean/correct way to do this.
+    if os.name != "nt": bar_height = 38 # TODO: workout a clean/correct way to do this.
+    else: bar_height = 0
     swidth = root.winfo_screenwidth() # width of the screen
     geo = [root.winfo_x(), root.winfo_y()-bar_height, root.winfo_width(), root.winfo_height()]
     geo[0] = geo[0]+geo[2] if geo[0]+(geo[2]/2) < swidth/2 else geo[0]-geo[2]
@@ -262,8 +263,8 @@ def set_debug(enabled):
 def save_file(path):
     if not os.path.exists(path) or os.path.isfile(path):
         with open(path, "w") as output_file:
-            text = editor.get(1.0, tk.END)
-            output_file.write(text[:-1])
+            text = editor.get(1.0, 'end-1c')
+            output_file.write(text)
             if path == current_file:
                 editor.edits = False
                 editor.extern_edits = False
@@ -595,10 +596,6 @@ root = tk.Tk()
 for arg in args:
     if arg.startswith("geo="):
         x,y,width,height = ast.literal_eval(arg.replace("geo=", ""))
-        # ws = root.winfo_screenwidth()
-        # hs = root.winfo_screenheight()
-        # x = (ws/2) - (width/2)
-        # y = (hs/2) - (height/2)
         root.geometry('%dx%d+%d+%d' % (width, height, x, y))
         break
 
