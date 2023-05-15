@@ -16,7 +16,7 @@ class Generic:
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
     regex     = rf"{brackets}|{symbols}|{number}"
-    
+
 class Json:
     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
     regex     = rf"{string}|{Generic.symbols}|{Generic.brackets}|{Generic.number}"
@@ -151,11 +151,14 @@ def step_tags() -> bool:
 
 def spawn(path):
     flags = 0
+    y2 = int(root.wm_geometry().split("+")[-1])
+    y1 = int(root.winfo_geometry().split("+")[-1])
     if os.name == "nt": flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
-    if os.name != "nt": bar_height = 38 # TODO: workout a clean/correct way to do this.
+    if os.name != "nt": bar_height = (y1-y2)-7 # TODO: workout a clean/correct way to do this.
     else: bar_height = 0
     swidth = root.winfo_screenwidth() # width of the screen
-    geo = [root.winfo_x(), root.winfo_y()-bar_height, root.winfo_width(), root.winfo_height()]
+    geo = [root.winfo_x(), root.winfo_y(), root.winfo_width(), root.winfo_height()]
+    geo[1] = geo[1]-bar_height
     geo[0] = geo[0]+geo[2] if geo[0]+(geo[2]/2) < swidth/2 else geo[0]-geo[2]
     subprocess.Popen([sys.executable, __file__, path, f"geo={geo}"], creationflags=flags)
 
@@ -253,7 +256,7 @@ def file_close(path):
     if files: file_open(next(iter(files)))
     else: root.quit()
 
-    
+
 
 def set_debug(enabled):
     global debug_output
@@ -296,7 +299,7 @@ def file_open(path, new_inst=False, read_only=False):
         editor.focus_set()
     elif os.path.exists(path):
         spawn(path)
-        
+
 
 def get_next_break(widget, backwards=True):
     cursor = widget.index(tk.INSERT)
@@ -422,10 +425,10 @@ def editor_modified(widget):
     else:
         start = f"{line-lines}.{0}"
         end = f"{line+lines}.{0}"
-    
+
     if lines < 64: update_tags(widget, start, end)
     if widget.tag_line > line-lines: widget.tag_line = 1
-    
+
 
 
 def insert_tab(widget):
@@ -591,8 +594,8 @@ if os.name == "nt":
     windll.shcore.SetProcessDpiAwareness(1)
 
 args = sys.argv[1:]
-print(args)
 root = tk.Tk()
+
 for arg in args:
     if arg.startswith("geo="):
         x,y,width,height = ast.literal_eval(arg.replace("geo=", ""))
@@ -660,7 +663,6 @@ def watch_file():
     do_update = False
     update_time = 500
     try:
-        # print((root.winfo_x(), root.winfo_y()))
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
             mtime = os.path.getmtime(editor.path)
