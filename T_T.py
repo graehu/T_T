@@ -151,15 +151,15 @@ def step_tags() -> bool:
 
 def spawn(path):
     flags = 0
-    y2 = int(root.wm_geometry().split("+")[-1])
-    y1 = int(root.winfo_geometry().split("+")[-1])
     if os.name == "nt": flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
-    if os.name != "nt": bar_height = (y1-y2)-7 # TODO: workout a clean/correct way to do this.
+    if os.name != "nt": bar_height = (int(root.winfo_geometry().split("+")[-1])-int(root.wm_geometry().split("+")[-1]))-7 # TODO: workout a clean/correct way to do this.
     else: bar_height = 0
-    swidth = root.winfo_screenwidth() # width of the screen
+
+    swidth = root.winfo_screenwidth()
+
     geo = [root.winfo_x(), root.winfo_y(), root.winfo_width(), root.winfo_height()]
     geo[1] = geo[1]-bar_height
-    geo[0] = geo[0]+geo[2] if geo[0]+(geo[2]/2) < swidth/2 else geo[0]-geo[2]
+    geo[0] = geo[0]+geo[2] if ((geo[0]+(geo[2]/2))%swidth) < swidth/2 else geo[0]-geo[2]
     subprocess.Popen([sys.executable, __file__, path, f"geo={geo}"], creationflags=flags)
 
 
@@ -591,7 +591,7 @@ def fullscreen():
 
 if os.name == "nt":
     from ctypes import windll
-    windll.shcore.SetProcessDpiAwareness(1)
+    windll.shcore.SetProcessDpiAwareness(2)
 
 args = sys.argv[1:]
 root = tk.Tk()
