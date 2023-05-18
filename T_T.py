@@ -136,6 +136,7 @@ debug_output = False
 is_fullscreen = False
 editor = complist = root = None
 match_loop = asyncio.get_event_loop()
+match_task = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
@@ -487,16 +488,16 @@ def palette_select_all(event=None):
 # -----------------------------------------------------
 
 def complist_update_start(text):
+    global match_task
     complist.delete(0, tk.END)
     matches = []
     if ": " in text:
         cmd, text = text.split(": ", maxsplit=1)
         if cmd in commands and "match_cb" in commands[cmd]:
-            task = match_loop.create_task(commands[cmd]["match_cb"](text))
-            task.add_done_callback(lambda t: complist_update_end(t.result()))
-            match_loop.run_until_complete(task)
-            # match_loop.close()
-            # matches = commands[cmd]["match_cb"](text)
+            if match_task and not match_task.done(): match_task.cancel()
+            match_task = match_loop.create_task(commands[cmd]["match_cb"](text))
+            match_task.add_done_callback(lambda t: complist_update_end(t.result()))
+            match_loop.run_until_complete(match_task)
     else:
         matches = [k+": " for k in commands if text in k]
         complist_update_end(matches)
@@ -554,11 +555,14 @@ async def cmd_open_matches(text):
 
 async def cmd_glob_matches(text):
     import glob
+    ret = []
     try:
-        return glob.glob(text)
+        ret = glob.glob(text)
+        if len(ret) > 50: ret = ret[:50]
     except Exception as e:
         print(e)
-    return []
+    if not ret or (len(ret) == 1 and ret[0] == text): ret = await cmd_open_matches(text)
+    return ret
 
 
 async def cmd_tab_matches(text):
