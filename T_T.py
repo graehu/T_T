@@ -135,7 +135,8 @@ current_file = ""
 debug_output = False
 is_fullscreen = False
 editor = complist = root = None
-match_loop = asyncio.get_event_loop()
+match_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(match_loop)
 match_task = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
@@ -200,6 +201,7 @@ def shorten_paths(paths):
         tails, new_tops = list(zip(*[os.path.split(t) for t in tails]))
         tops = [os.path.join(t1, t2) for t1,t2 in zip(new_tops, tops)]
     return tops
+
 
 def list_path(path):
     if path == os.curdir: paths = os.listdir(path)
@@ -502,7 +504,11 @@ def complist_update_start(text):
         matches = [k+": " for k in commands if text in k]
         complist_update_end(matches)
 
+
 def complist_update_end(matches):
+    if matches:
+        m_len = int(editor.winfo_height()/config['text']['font'][1])
+        matches = matches[:int(m_len/1.85)]
     for match in matches: complist.insert(tk.END, match)
     height = complist.size()
     width = len(max(matches, key=len))+1 if height else 0
@@ -557,8 +563,7 @@ async def cmd_glob_matches(text):
     import glob
     ret = []
     try:
-        ret = glob.glob(text)
-        if len(ret) > 50: ret = ret[:50]
+        ret = glob.glob(text, recursive=True)
     except Exception as e:
         print(e)
     if not ret or (len(ret) == 1 and ret[0] == text): ret = await cmd_open_matches(text)
