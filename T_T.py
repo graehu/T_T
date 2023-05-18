@@ -6,6 +6,7 @@ import ast
 import json
 import time
 import zlib
+import asyncio
 import fnmatch
 import subprocess
 import tkinter as tk
@@ -134,6 +135,7 @@ current_file = ""
 debug_output = False
 is_fullscreen = False
 editor = complist = root = None
+match_loop = asyncio.get_event_loop()
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
@@ -475,7 +477,7 @@ def palette_op(op=None):
 
 
 def palette_select_all(event=None):
-    complist_update(palette.get())
+    complist_update_start(palette.get())
     text = palette.get()
     index = text.find(":")
     if index != -1: palette.selection_range(index+2, tk.END)
@@ -484,17 +486,22 @@ def palette_select_all(event=None):
 
 # -----------------------------------------------------
 
-def complist_update(text):
+def complist_update_start(text):
     complist.delete(0, tk.END)
-    width = height = 0
     matches = []
     if ": " in text:
         cmd, text = text.split(": ", maxsplit=1)
         if cmd in commands and "match_cb" in commands[cmd]:
-            matches = commands[cmd]["match_cb"](text)
+            task = match_loop.create_task(commands[cmd]["match_cb"](text))
+            task.add_done_callback(lambda t: complist_update_end(t.result()))
+            match_loop.run_until_complete(task)
+            # match_loop.close()
+            # matches = commands[cmd]["match_cb"](text)
     else:
         matches = [k+": " for k in commands if text in k]
+        complist_update_end(matches)
 
+def complist_update_end(matches):
     for match in matches: complist.insert(tk.END, match)
     height = complist.size()
     width = len(max(matches, key=len))+1 if height else 0
@@ -529,7 +536,7 @@ def complist_insert(event=None, sel=-1):
 
 # -----------------------------------------------------
 
-def cmd_open_matches(text):
+async def cmd_open_matches(text):
     low_text = text.lower()
     dirname, basename = os.path.split(low_text)
     ret = []
@@ -545,7 +552,16 @@ def cmd_open_matches(text):
     return list(filter(file_filter, ret))
 
 
-def cmd_tab_matches(text):
+async def cmd_glob_matches(text):
+    import glob
+    try:
+        return glob.glob(text)
+    except Exception as e:
+        print(e)
+    return []
+
+
+async def cmd_tab_matches(text):
     low_text = text.lower()
     dirname, basename = os.path.split(low_text)
     def file_filter(word):
@@ -615,11 +631,13 @@ root.bind("<Control-m>", lambda _: file_open(conf_path))
 
 cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
+cmd_register("glob", lambda x: file_open(*x), cmd_glob_matches, "<Control-g>")
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 cmd_register("save as", lambda x: (save_file(x[0]), file_open(x[0])), cmd_open_matches, "<Control-S>")
 
 editor = EventText(root, wrap='none', undo=True)
+
 
 complist = tk.Listbox(root, relief='flat')
 complist.bind("<Double-Button-1>", complist_insert)
@@ -636,7 +654,7 @@ complist.bind("<Key>", lambda x: (palette.insert(tk.END, x.char), palette.focus_
 
 palette = tk.Entry(root)
 palette.bind("<Control-a>", palette_select_all)
-palette.bind("<KeyRelease>", lambda x: complist_update(palette.get()))
+palette.bind("<KeyRelease>", lambda x: complist_update_start(palette.get()))
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
 palette.bind("<Control-BackSpace>", lambda x: delete_to_break(palette))
 palette.bind("<Control-Delete>", lambda x: delete_to_break(palette, False))
@@ -695,3 +713,4 @@ def watch_file():
 
 watch_file()
 root.mainloop()
+match_loop.close()
