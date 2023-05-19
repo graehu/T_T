@@ -667,11 +667,14 @@ complist.bind("<Key>", lambda x: (palette.insert(tk.END, x.char), palette.focus_
 
 
 palette = tk.Entry(root)
+palette_cus = lambda x=None: complist_update_start(palette.get())
 palette.bind("<Control-a>", palette_select_all)
-palette.bind("<KeyRelease>", lambda x: complist_update_start(palette.get()))
+palette.bind("<KeyRelease>", lambda x: palette_cus() if 32<x.keysym_num<200 else "")
+palette.bind("<BackSpace>", palette_cus)
+palette.bind("<Delete>", palette_cus)
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
-palette.bind("<Control-BackSpace>", lambda x: delete_to_break(palette))
-palette.bind("<Control-Delete>", lambda x: delete_to_break(palette, False))
+palette.bind("<Control-BackSpace>", lambda x: (delete_to_break(palette), palette_cus()))
+palette.bind("<Control-Delete>", lambda x: (delete_to_break(palette, False), palette_cus()))
 palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
