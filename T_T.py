@@ -3,6 +3,7 @@ import re
 import os
 import sys
 import ast
+import glob
 import json
 import time
 import zlib
@@ -129,6 +130,7 @@ config = {
 files = {}
 commands = {}
 op_args = {}
+glob_map = {}
 tag_line_stride = 128
 tab_spaces = 4
 current_file = ""
@@ -286,6 +288,8 @@ def file_open(path, new_inst=False, read_only=False):
     global root
     global current_file
     global editor
+    global glob_map
+    glob_map = {}
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
     if os.path.isdir(path): return
@@ -560,12 +564,13 @@ async def cmd_open_matches(text):
 
 
 async def cmd_glob_matches(text):
-    import glob
     ret = []
-    try:
+    if text not in glob_map:
         ret = glob.glob(text, recursive=True)
-    except Exception as e:
-        print(e)
+        glob_map[text] = ret
+    
+    else: ret = glob_map[text]
+    
     if not ret or (len(ret) == 1 and ret[0] == text): ret = await cmd_open_matches(text)
     return ret
 
