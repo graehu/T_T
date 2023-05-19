@@ -1,4 +1,4 @@
-# T_T
+# gram.py
 
 A single file tkinter python text editor.
 
@@ -8,8 +8,9 @@ There's a simple command palette at the bottom which supports:
 
 * Find - Find text in the editor. (ctrl-f)
 * Open - Open files in the editor. (ctrl-o)
+* Glob - Open files in the editor via glob. (ctrl-g)
 * Tab  - Re-open tabs you have navigated away from. (ctrl-t)
-* Exec - Execute arbitrary python mostly for debugging development of T_T. (ctrl-e)
+* Exec - Execute arbitrary python mostly for debugging development of gram.py (ctrl-e)
 
 Holding shift for open and tab will open a new instance.
 Holding shift for find cycles backwards through finds.
