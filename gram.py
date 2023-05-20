@@ -669,6 +669,7 @@ complist.bind("<Key>", lambda x: (palette.insert(tk.END, x.char), palette.focus_
 palette = tk.Entry(root)
 palette_cus = lambda x=None: complist_update_start(palette.get())
 palette.bind("<Control-a>", palette_select_all)
+palette.bind("<Control-w>", lambda x: file_close(editor.path))
 palette.bind("<KeyRelease>", lambda x: palette_cus() if 32<x.keysym_num<200 else "")
 palette.bind("<BackSpace>", palette_cus)
 palette.bind("<Delete>", palette_cus)
