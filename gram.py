@@ -182,7 +182,9 @@ def apply_config(widget):
         text_config.update({"font":font, "relief": "flat", "borderwidth":0})
         widget.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
         palette.configure(**text_config)
-        complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
+        del text_config["insertbackground"]
+        complist.configure(**text_config)
+        # complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
         for k in widget.tag_names(): widget.tag_delete(k)
         for k in tags_config: widget.tag_configure(k, tags_config[k])
     except Exception as e:
@@ -510,26 +512,30 @@ def complist_update_start(text):
 
 
 def complist_update_end(matches):
-    if matches:
-        m_len = int(editor.winfo_height()/config['text']['font'][1])
-        matches = matches[:int(m_len/1.85)]
     for match in matches: complist.insert(tk.END, match)
-    height = complist.size()
-    width = len(max(matches, key=len))+1 if height else 0
-    complist.config(height=height, width=width)
-    complist.place(x=palette.winfo_x(), y=palette.winfo_y()+height) # hack to force complist_configured
-
+    size = complist.size()
+    width = len(max(matches, key=len))+1 if size else 0
+    complist.config(width=width)
+    complist.place(x=palette.winfo_x(), y=palette.winfo_y()+size) # hack +size to force complist_configured
+    if editor.winfo_height() < (size*config['text']['font'][1])*1.5:
+        complist.place_configure(height=editor.winfo_height())
+    else:
+        complist.configure(height=size)
+    
 
 def complist_configured(event=None):
     global complist
     if complist:
         complist.place_forget()
-        if complist.size() != 0 and root.focus_get() == palette:
+        size = complist.size()
+        if size != 0 and root.focus_get() == palette:
             height = complist.winfo_height()
-            pad = config["text"]["highlightthickness"] if "highlightthickness" in config["text"] else 0
-            x = palette.winfo_x()+pad
-            y = (palette.winfo_y()-height)-pad
-            complist.place(x=x, y=y)
+            x = palette.winfo_x()
+            y = (palette.winfo_y()-height)
+            if editor.winfo_height() < (size*config['text']['font'][1])*1.5:
+                complist.place(x=x, y=y, height=height)
+            else:
+                complist.place(x=x, y=y)
 
 
 def complist_insert(event=None, sel=-1):
@@ -543,6 +549,7 @@ def complist_insert(event=None, sel=-1):
         selected_text = complist.get(sel)
         palette.insert(0, cmd+selected_text)
         palette.focus_set()
+        complist_update_start(cmd+selected_text)
     return "break"
 
 # -----------------------------------------------------
@@ -664,7 +671,8 @@ complist.bind("<Up>", lambda _: "")
 complist.bind("<Shift_L>", lambda _: "")
 complist.bind("<Shift_R>", lambda _: "")
 complist.bind("<Key>", lambda x: (palette.insert(tk.END, x.char), palette.focus_set()))
-
+complist.configure(borderwidth=0, selectborderwidth=0)
+complist.configure(activestyle='none')
 
 palette = tk.Entry(root)
 palette_cus = lambda x=None: complist_update_start(palette.get())
@@ -679,7 +687,7 @@ palette.bind("<Control-Delete>", lambda x: (delete_to_break(palette, False), pal
 palette.bind("<Escape>", lambda x: editor.focus_set())
 palette.bind("<Tab>", lambda x: complist_insert(None, 0))
 palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) if complist.size() else "")
-
+palette.configure(borderwidth=0)
 palette.pack(fill="x")
 apply_config(editor)
 
