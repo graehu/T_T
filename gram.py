@@ -148,12 +148,6 @@ if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
-def pt_to_px(pt):
-    # ppi = root.winfo_fpixels("1i")
-    ppi = 96  # Standard screen resolution in pixels per inch
-    px = pt * ppi / 72  # Conversion formula: px = pt * ppi / 72
-    return px
-
 
 def step_tags() -> bool:
     lines = int(editor.index('end-1c').split('.')[0])
@@ -528,19 +522,22 @@ def complist_update_start(text, force = False):
 
 
 def complist_update_end(matches):
-    for match in matches: complist.insert(tk.END, match)
     complist.place_forget()
+    for match in matches: complist.insert(tk.END, match)
     size = complist.size()
     if size:
-        # hack: estimating listbox element height
-        height = config['text']['font'][1]*1.5
-        if height < 0: height = abs(height)*size
-        else: height = (pt_to_px(height))*size
-        width = len(max(matches, key=len))+1
+        width = len(max(matches, key=len))+1 if matches else 0
         complist.configure(width=width, height=size)
         complist.place(x=palette.winfo_x(), y=palette.winfo_y(), anchor="sw")
-        if height > editor.winfo_height(): complist.place_configure(height=editor.winfo_height())
 
+
+def complist_configure():
+    if editor == root.focus_get(): return
+    complist.place(x=palette.winfo_x(), y=palette.winfo_y(), anchor="sw")
+    if complist.winfo_height() > editor.winfo_height():
+        complist.place_configure(height=editor.winfo_height())
+
+    
 def complist_insert(event=None, sel=-1):
     if complist.size() == 0: return "break"
     if sel == -1: sel = complist.curselection()
@@ -651,7 +648,6 @@ root.configure(background=config["text"]["background"])
 
 root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Control-m>", lambda _: file_open(conf_path))
-root.bind("<Configure>", lambda _: complist_update_start(palette.get(), True))
 
 cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
@@ -661,9 +657,9 @@ cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 cmd_register("save as", lambda x: (save_file(x[0]), file_open(x[0])), cmd_open_matches, "<Control-S>")
 
 editor = EventText(root, wrap='none', undo=True)
-
-
 complist = tk.Listbox(root, relief='flat')
+
+complist.bind("<Configure>", lambda _: complist_configure())
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
@@ -679,6 +675,7 @@ complist.configure(activestyle='none')
 palette = tk.Entry(root)
 palette_cus = lambda x=None: complist_update_start(palette.get())
 palette.bind("<Control-a>", palette_select_all)
+palette.bind("<Configure>", lambda _: complist_configure())
 palette.bind("<Control-w>", lambda x: file_close(editor.path))
 palette.bind("<KeyRelease>", lambda x: palette_cus() if 31<x.keysym_num<200 else "")
 palette.bind("<KeyRelease-BackSpace>", palette_cus)
