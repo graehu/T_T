@@ -502,6 +502,7 @@ def palette_select_all(event=None):
 def complist_update_start(text, force = False):
     global match_task
     global last_complist
+    if not root.focus_get(): return
     if root.focus_get() == editor: return
     if text != last_complist or force:
         last_complist = text
@@ -532,6 +533,7 @@ def complist_update_end(matches):
 
 
 def complist_configure():
+    if not root.focus_get(): return
     if editor == root.focus_get(): return
     complist.place(x=palette.winfo_x(), y=palette.winfo_y(), anchor="sw")
     if complist.winfo_height() > editor.winfo_height():
