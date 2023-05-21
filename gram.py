@@ -61,7 +61,10 @@ class EventText(tk.Text):
         self.tk.createcommand(self._w, self._proxy)
         for k, v in commands.items(): self.bind(v["shortcut"], lambda _, key=k: palette_op(key))
         self.selection_own()
-
+        def focused():
+            global last_complist
+            complist.place_forget()
+            last_complist = ""
         self.bind("<Control-a>", lambda x: select_all(self))
         self.bind("<Control-Left>", lambda x: goto_next_break(self))
         self.bind("<Control-Right>", lambda x: goto_next_break(self, False))
@@ -70,7 +73,7 @@ class EventText(tk.Text):
         self.bind("<Control-BackSpace>", lambda x: delete_to_break(self))
         self.bind("<Control-Delete>", lambda x: delete_to_break(self, False))
         self.bind("<BackSpace>", lambda x: backspace(self))
-        self.bind("<FocusIn>", lambda x: complist.place_forget())
+        self.bind("<FocusIn>", lambda x: focused())
         self.bind("<Tab>", lambda x: insert_tab(self))
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
@@ -133,6 +136,7 @@ op_args = {}
 glob_map = {}
 tag_line_stride = 128
 tab_spaces = 4
+last_complist = ""
 current_file = ""
 debug_output = False
 is_fullscreen = False
@@ -143,6 +147,12 @@ match_task = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
+
+def pt_to_px(pt):
+    # ppi = root.winfo_fpixels("1i")
+    ppi = 96  # Standard screen resolution in pixels per inch
+    px = pt * ppi / 72  # Conversion formula: px = pt * ppi / 72
+    return px
 
 
 def step_tags() -> bool:
@@ -495,48 +505,41 @@ def palette_select_all(event=None):
 
 # -----------------------------------------------------
 
-def complist_update_start(text):
+def complist_update_start(text, force = False):
     global match_task
-    complist.delete(0, tk.END)
-    matches = []
-    if ": " in text:
-        cmd, text = text.split(": ", maxsplit=1)
-        if cmd in commands and "match_cb" in commands[cmd]:
-            if match_task and not match_task.done(): match_task.cancel()
-            match_task = match_loop.create_task(commands[cmd]["match_cb"](text))
-            match_task.add_done_callback(lambda t: complist_update_end(t.result()))
-            match_loop.run_until_complete(match_task)
-    else:
-        matches = [k+": " for k in commands if text in k]
-        complist_update_end(matches)
+    global last_complist
+    if root.focus_get() == editor: return
+    if text != last_complist or force:
+        last_complist = text
+        complist.delete(0, tk.END)
+        matches = []
+        if ": " in text:
+            cmd, text = text.split(": ", maxsplit=1)
+            if cmd in commands and "match_cb" in commands[cmd]:
+                if match_task and not match_task.done(): match_task.cancel()
+                match_task = match_loop.create_task(commands[cmd]["match_cb"](text))
+                match_task.add_done_callback(lambda t: complist_update_end(t.result()))
+                match_loop.run_until_complete(match_task)
+            else:
+                complist.place_forget()
+        else:
+            matches = [k+": " for k in commands if text in k]
+            complist_update_end(matches)
 
 
 def complist_update_end(matches):
     for match in matches: complist.insert(tk.END, match)
+    complist.place_forget()
     size = complist.size()
-    width = len(max(matches, key=len))+1 if size else 0
-    complist.config(width=width)
-    complist.place(x=palette.winfo_x(), y=palette.winfo_y()+size) # hack +size to force complist_configured
-    if editor.winfo_height() < (size*config['text']['font'][1])*1.5:
-        complist.place_configure(height=editor.winfo_height())
-    else:
-        complist.configure(height=size)
-    
-
-def complist_configured(event=None):
-    global complist
-    if complist:
-        complist.place_forget()
-        size = complist.size()
-        if size != 0 and root.focus_get() == palette:
-            height = complist.winfo_height()
-            x = palette.winfo_x()
-            y = (palette.winfo_y()-height)
-            if editor.winfo_height() < (size*config['text']['font'][1])*1.5:
-                complist.place(x=x, y=y, height=height)
-            else:
-                complist.place(x=x, y=y)
-
+    if size:
+        # hack: estimating listbox element height
+        height = config['text']['font'][1]*1.5
+        if height < 0: height = abs(height)*size
+        else: height = (pt_to_px(height))*size
+        width = len(max(matches, key=len))+1
+        complist.configure(width=width, height=size)
+        complist.place(x=palette.winfo_x(), y=palette.winfo_y(), anchor="sw")
+        if height > editor.winfo_height(): complist.place_configure(height=editor.winfo_height())
 
 def complist_insert(event=None, sel=-1):
     if complist.size() == 0: return "break"
@@ -647,8 +650,8 @@ root.wm_iconphoto(False, photo)
 root.configure(background=config["text"]["background"])
 
 root.bind("<Control-s>", lambda x: save_file(current_file))
-root.bind("<Configure>", lambda x: complist_configured())
 root.bind("<Control-m>", lambda _: file_open(conf_path))
+root.bind("<Configure>", lambda _: complist_update_start(palette.get(), True))
 
 cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
@@ -664,7 +667,6 @@ complist = tk.Listbox(root, relief='flat')
 complist.bind("<Double-Button-1>", complist_insert)
 complist.bind("<Return>", complist_insert)
 complist.bind("<Tab>", complist_insert)
-complist.bind("<Configure>", complist_configured)
 complist.bind("<Escape>", lambda x: palette.focus_set())
 complist.bind("<Down>", lambda _: "")
 complist.bind("<Up>", lambda _: "")
@@ -678,9 +680,9 @@ palette = tk.Entry(root)
 palette_cus = lambda x=None: complist_update_start(palette.get())
 palette.bind("<Control-a>", palette_select_all)
 palette.bind("<Control-w>", lambda x: file_close(editor.path))
-palette.bind("<KeyRelease>", lambda x: palette_cus() if 32<x.keysym_num<200 else "")
-palette.bind("<BackSpace>", palette_cus)
-palette.bind("<Delete>", palette_cus)
+palette.bind("<KeyRelease>", lambda x: palette_cus() if 31<x.keysym_num<200 else "")
+palette.bind("<KeyRelease-BackSpace>", palette_cus)
+palette.bind("<KeyRelease-Delete>", palette_cus)
 palette.bind('<FocusIn>', lambda x: palette.focus_set())
 palette.bind("<Control-BackSpace>", lambda x: (delete_to_break(palette), palette_cus()))
 palette.bind("<Control-Delete>", lambda x: (delete_to_break(palette, False), palette_cus()))
@@ -701,6 +703,7 @@ else:
             if not os.path.exists(new_file): break
             new_file = f"new_file{i}.txt"
         file_open(new_file)
+
 
 def watch_file():
     global conf_mtime
