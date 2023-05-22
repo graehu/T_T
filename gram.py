@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-import re
-import os
-import sys
-import ast
-import glob
-import json
-import time
-import zlib
-import asyncio
-import fnmatch
-import subprocess
+import re, os, sys, ast, glob, json, time, zlib, asyncio, fnmatch, subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -49,8 +39,7 @@ re_xml_tags = re.compile(Xml.regex, re.S)
 re_gen_tags = re.compile(Generic.regex, re.S)
 
 class EventText(tk.Text):
-    event_args = None
-    tag_regex = None
+    event_args = tag_regex = None
     path = name = ext = ""
     edits = extern_edits = read_only = False
     mtime = tag_line = 0
@@ -174,8 +163,7 @@ def spawn(path):
     swidth = root.winfo_screenwidth()
 
     geo = [root.winfo_x(), root.winfo_y(), root.winfo_width(), root.winfo_height()]
-    geo[1] = geo[1]-bar_height
-    geo[0] = geo[0]+geo[2] if ((geo[0]+(geo[2]/2))%swidth) < swidth/2 else geo[0]-geo[2]
+    geo[1], geo[0] = geo[1]-bar_height, geo[0]+geo[2] if ((geo[0]+(geo[2]/2))%swidth) < swidth/2 else geo[0]-geo[2]
     subprocess.Popen([sys.executable, __file__, path, f"geo={geo}"], creationflags=flags)
 
 
@@ -194,7 +182,6 @@ def apply_config(widget):
         palette.configure(**text_config)
         del text_config["insertbackground"]
         complist.configure(**text_config)
-        # complist.configure(highlightcolor=text_config["foreground"], **{"foreground": text_config["foreground"], "background": text_config["background"], "font":font})
         for k in widget.tag_names(): widget.tag_delete(k)
         for k in tags_config: widget.tag_configure(k, tags_config[k])
     except Exception as e:
@@ -284,6 +271,7 @@ def set_debug(enabled):
 
 def save_file(path):
     if not os.path.exists(path) or os.path.isfile(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as output_file:
             text = editor.get(1.0, 'end-1c')
             output_file.write(text)
@@ -651,7 +639,6 @@ root.configure(background=config["text"]["background"])
 
 root.bind("<Control-s>", lambda x: save_file(current_file))
 root.bind("<Control-m>", lambda _: file_open(conf_path))
-root.bind("<Configure>", lambda _: complist_update_start(palette.get(), True))
 
 cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
@@ -692,6 +679,7 @@ palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) 
 palette.configure(borderwidth=0)
 palette.pack(fill="x")
 apply_config(editor)
+root.bind("<Configure>", lambda _: complist_update_start(palette.get(), True))
 
 if args and os.path.exists(args[0]): file_open(args[0])
 else:
