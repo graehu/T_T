@@ -679,7 +679,6 @@ palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) 
 palette.configure(borderwidth=0)
 palette.pack(fill="x")
 apply_config(editor)
-root.bind("<Configure>", lambda _: complist_update_start(palette.get(), True))
 
 if args and os.path.exists(args[0]): file_open(args[0])
 else:
