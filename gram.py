@@ -131,6 +131,8 @@ debug_output = False
 is_fullscreen = False
 editor = complist = root = None
 match_thread = None
+match_lock = threading.Lock()
+
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
@@ -489,9 +491,6 @@ def complist_update_start(text, force = False):
     global match_task
     global last_complist
     global match_thread
-    def match_it(match_func, text):
-        print("hi: "+text)
-        complist_update_end(match_func(text))
     if not root.focus_get(): return
     if root.focus_get() == editor: return
     if text != last_complist or force:
@@ -508,19 +507,23 @@ def complist_update_start(text, force = False):
 
         if match_func:
             if match_thread and match_thread.is_alive(): match_thread.join(timeout=.1)
-            match_thread = threading.Thread(target=match_it, args=(match_func, text))
+            def _match_thread(match_func, text): complist_update_end(text, match_func(text))
+            match_thread = threading.Thread(target=_match_thread, args=(match_func, text))
             match_thread.start()
         
 
-
-def complist_update_end(matches):
-    complist.place_forget()
-    for match in matches: complist.insert(tk.END, match)
-    size = complist.size()
-    if size:
-        width = len(max(matches, key=len))+1 if matches else 0
-        complist.configure(width=width, height=size)
-        complist.place(x=palette.winfo_x(), y=palette.winfo_y(), anchor="sw")
+def complist_update_end(text, matches):
+    match_lock.acquire()
+    if last_complist.endswith(text):
+        complist.delete(0, tk.END)
+        complist.place_forget()
+        for match in matches: complist.insert(tk.END, match)
+        size = complist.size()
+        if size:
+            width = len(max(matches, key=len))+1 if matches else 0
+            complist.configure(width=width, height=size)
+            complist.place(x=palette.winfo_x(), y=palette.winfo_y(), anchor="sw")
+    match_lock.release()
 
 
 def complist_configure():
