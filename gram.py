@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import re, os, sys, ast, glob, json, time, zlib, asyncio, fnmatch, subprocess
+import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -130,9 +130,7 @@ current_file = ""
 debug_output = False
 is_fullscreen = False
 editor = complist = root = None
-match_loop = asyncio.new_event_loop()
-asyncio.set_event_loop(match_loop)
-match_task = None
+match_thread = None
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
@@ -490,24 +488,29 @@ def palette_select_all(event=None):
 def complist_update_start(text, force = False):
     global match_task
     global last_complist
+    global match_thread
+    def match_it(match_func, text):
+        print("hi: "+text)
+        complist_update_end(match_func(text))
     if not root.focus_get(): return
     if root.focus_get() == editor: return
     if text != last_complist or force:
+        match_func = None
         last_complist = text
         complist.delete(0, tk.END)
-        matches = []
+        complist.place_forget()
         if ": " in text:
             cmd, text = text.split(": ", maxsplit=1)
             if cmd in commands and "match_cb" in commands[cmd]:
-                if match_task and not match_task.done(): match_task.cancel()
-                match_task = match_loop.create_task(commands[cmd]["match_cb"](text))
-                match_task.add_done_callback(lambda t: complist_update_end(t.result()))
-                match_loop.run_until_complete(match_task)
-            else:
-                complist.place_forget()
+                match_func = commands[cmd]["match_cb"]    
         else:
-            matches = [k+": " for k in commands if text in k]
-            complist_update_end(matches)
+            match_func = lambda x: [k+": " for k in commands if x in k]
+
+        if match_func:
+            if match_thread and match_thread.is_alive(): match_thread.join(timeout=.1)
+            match_thread = threading.Thread(target=match_it, args=(match_func, text))
+            match_thread.start()
+        
 
 
 def complist_update_end(matches):
@@ -544,7 +547,7 @@ def complist_insert(event=None, sel=-1):
 
 # -----------------------------------------------------
 
-async def cmd_open_matches(text):
+def cmd_open_matches(text):
     low_text = text.lower()
     dirname, basename = os.path.split(low_text)
     ret = []
@@ -560,7 +563,7 @@ async def cmd_open_matches(text):
     return list(filter(file_filter, ret))
 
 
-async def cmd_glob_matches(text):
+def cmd_glob_matches(text):
     ret = []
     if text not in glob_map:
         ret = glob.glob(text, recursive=True)
@@ -568,11 +571,11 @@ async def cmd_glob_matches(text):
     
     else: ret = glob_map[text]
     
-    if not ret or (len(ret) == 1 and ret[0] == text): ret = await cmd_open_matches(text)
+    if not ret or (len(ret) == 1 and ret[0] == text): ret = cmd_open_matches(text)
     return ret
 
 
-async def cmd_tab_matches(text):
+def cmd_tab_matches(text):
     low_text = text.lower()
     dirname, basename = os.path.split(low_text)
     def file_filter(word):
@@ -729,4 +732,4 @@ def watch_file():
 
 watch_file()
 root.mainloop()
-match_loop.close()
+if match_thread and match_thread.is_alive(): match_thread.join(timeout=0.1)
