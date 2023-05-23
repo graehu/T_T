@@ -66,6 +66,10 @@ class EventText(tk.Text):
         self.bind("<Tab>", lambda x: insert_tab(self))
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
+    
+    def destroy(self) -> None:
+        self.tk.deletecommand(self._orig)
+        return super().destroy()
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -76,7 +80,6 @@ class EventText(tk.Text):
             if command in ("insert", "delete", "replace"):
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
-
             # if command in ("yview", "xview"):
             #     self.event_generate("<<ViewUpdated>>")
         except Exception as e:
@@ -131,6 +134,7 @@ debug_output = False
 is_fullscreen = False
 editor = complist = root = None
 match_thread = None
+destroy_list = []
 match_lock = threading.Lock()
 
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
@@ -153,9 +157,7 @@ def spawn(path):
     if os.name == "nt": flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.CREATE_DEFAULT_ERROR_MODE
     if os.name != "nt": bar_height = (int(root.winfo_geometry().split("+")[-1])-int(root.wm_geometry().split("+")[-1]))-7 # TODO: workout a clean/correct way to do this.
     else: bar_height = 0
-
     swidth = root.winfo_screenwidth()
-
     geo = [root.winfo_x(), root.winfo_y(), root.winfo_width(), root.winfo_height()]
     geo[1], geo[0] = geo[1]-bar_height, geo[0]+geo[2] if ((geo[0]+(geo[2]/2))%swidth) < swidth/2 else geo[0]-geo[2]
     subprocess.Popen([sys.executable, __file__, path, f"geo={geo}"], creationflags=flags)
@@ -251,7 +253,7 @@ def file_close(path):
     key = file_to_key(path)
     print("removing: "+key)
     info = files.pop(key)
-    info["editor"].destroy()
+    destroy_list.append(info["editor"])
     current_file = ""
     if files: file_open(next(iter(files)))
     else: root.quit()
@@ -703,6 +705,7 @@ def watch_file():
     do_update = False
     update_time = 500
     try:
+        if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
             mtime = os.path.getmtime(editor.path)
