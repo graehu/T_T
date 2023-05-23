@@ -66,10 +66,6 @@ class EventText(tk.Text):
         self.bind("<Tab>", lambda x: insert_tab(self))
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
-    
-    def destroy(self) -> None:
-        self.tk.deletecommand(self._orig)
-        return super().destroy()
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -734,7 +730,7 @@ def watch_file():
         if step_tags(): update_time = 10
     except Exception as e:
         print(e)
-    editor.after(update_time, watch_file)
+    root.after(update_time, watch_file)
 
 watch_file()
 root.mainloop()
