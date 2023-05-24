@@ -79,9 +79,24 @@ class EventText(tk.Text):
             # if command in ("yview", "xview"):
             #     self.event_generate("<<ViewUpdated>>")
         except Exception as e:
-            print(e)
+            print(e, file=sys.stderr)
 
         return result
+
+
+class StdoutText(EventText):
+    def __init__(self, master, **kwargs):
+        EventText.__init__(self, master, **kwargs)
+        self.stdout = sys.stdout
+        self.name = "stdout"
+        self.bind("<Control-w>", lambda x: file_open(current_file))
+
+    def write(self, message):
+        self.stdout.write(message)
+        self.configure(state=tk.NORMAL)
+        self.insert(tk.END, message)
+        self.see(tk.END)
+        self.configure(state=tk.DISABLED)
 
 
 _grampy_icon = zlib.decompress(b'x\x9c\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd2\x02 \xcc\xc1\x06$\xe5?\xffO\x04R\x8c\xc5A\xeeN\x0c\xeb\xce\xc9\xbc\x04rX\xd2\x1d}\x1d\x19\x186\xf6s\xffId\x05\xf29\x0b<"\x8b\x19\x18\xc4TA\x98\xd13H\xe5\x03P\xd0\xce\xd3\xc51\xc4\xc2?\xf9\x87\xbf\xa2\x84\x1f\x9b\x81\x81\x81\xc2\x86\xab,+4x\xee\x1c\xd3\xec\x7f\xd4\x94\x9b)\xc0\xba\x83\xc1\xec\xe7\xc34\x06K\x86v\xc6\xdb\x07\xcc\x14\x93c\x1a\xc2\xf4\x14\xe4x*\x99\xff\xfdgg\xe8\xb9\xb8\xa9\xf3\xfa\x8e\x1f\xf9@\x93\x18<]\xfd\\\xd69%4\x01\x00 >/\xb2')
@@ -177,15 +192,29 @@ def apply_config(widget):
         for k in widget.tag_names(): widget.tag_delete(k)
         for k in tags_config: widget.tag_configure(k, tags_config[k])
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
 
 
 def update_title(widget):
+    if widget != editor: return
     title = widget.name
     if widget.edits: title += "*"
     if widget.read_only: title += "  (read only)"
     if widget.extern_edits: title = f"!! WARNING !!    External edits to  ' {title} '  close and reopen    !! WARNING !!"
     root.title(title)
+
+
+def show_stdout():
+    global editor
+    if "name" in dir(sys.stdout):
+        editor.pack_forget()
+        editor.config()
+        editor = sys.stdout
+        editor.pack(before=palette, expand=True, fill="both")
+        update_title(editor)
+        apply_config(editor)
+        editor.lower()
+        editor.focus_set()
 
 
 def shorten_paths(paths):
@@ -276,7 +305,7 @@ def save_file(path):
             if path == conf_path: apply_config(editor)
 
 
-def file_open(path, new_inst=False, read_only=False):
+def file_open(path, new_inst=False, read_only=False, background=False):
     global root
     global current_file
     global editor
@@ -285,6 +314,7 @@ def file_open(path, new_inst=False, read_only=False):
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
     if os.path.isdir(path): return
+    if background: file_get(path, read_only); return
     if not new_inst:
         current_file = path
         editor.pack_forget()
@@ -591,7 +621,18 @@ def cmd_tab_matches(text):
 
 def cmd_exec(text):
     try: exec(text, globals(), locals())
-    except Exception as e: print(e)
+    except Exception as e: print(e, file=sys.stderr)
+
+
+def cmd_open(text, new_instance=False):
+    if "*" in text:
+        complist.place_forget()
+        show_stdout()
+        print("opening files matching: "+text)
+        root.update()
+        for c in complist.get(0, tk.END): file_open(c, background=True)
+    else:
+        file_open(text, new_instance)
 
 
 def cmd_tab(text, new_instance=False):
@@ -627,6 +668,8 @@ if os.name == "nt":
 args = sys.argv[1:]
 root = tk.Tk()
 
+sys.stdout = StdoutText(root, wrap='none', **config["text"])
+
 for arg in args:
     if arg.startswith("geo="):
         x,y,width,height = ast.literal_eval(arg.replace("geo=", ""))
@@ -640,12 +683,12 @@ photo = tk.PhotoImage(data=_grampy_icon)
 root.wm_iconphoto(False, photo)
 root.configure(background=config["text"]["background"])
 
-root.bind("<Control-s>", lambda x: save_file(current_file))
+root.bind("<Control-s>", lambda _: save_file(current_file))
 root.bind("<Control-m>", lambda _: file_open(conf_path))
+root.bind("<Control-O>", lambda _: show_stdout())
 
-cmd_register("open", lambda x: file_open(*x), cmd_open_matches, "<Control-o>")
+cmd_register("open", lambda x: cmd_open(*x) , cmd_glob_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
-cmd_register("glob", lambda x: file_open(*x), cmd_glob_matches, "<Control-g>")
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 cmd_register("save as", lambda x: (save_file(x[0]), file_open(x[0])), cmd_open_matches, "<Control-S>")
@@ -729,9 +772,10 @@ def watch_file():
         if do_update: editor.tag_line = 1
         if step_tags(): update_time = 10
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
     root.after(update_time, watch_file)
 
 watch_file()
 root.mainloop()
 if match_thread and match_thread.is_alive(): match_thread.join(timeout=0.1)
+sys.stdout = sys.__stdout__
