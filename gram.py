@@ -84,21 +84,6 @@ class EventText(tk.Text):
         return result
 
 
-class StdoutText(EventText):
-    def __init__(self, master, **kwargs):
-        EventText.__init__(self, master, **kwargs)
-        self.stdout = sys.stdout
-        self.name = "stdout"
-        self.bind("<Control-w>", lambda x: file_open(current_file))
-
-    def write(self, message):
-        self.stdout.write(message)
-        self.configure(state=tk.NORMAL)
-        self.insert(tk.END, message)
-        self.see(tk.END)
-        self.configure(state=tk.DISABLED)
-
-
 _grampy_icon = zlib.decompress(b'x\x9c\xeb\x0c\xf0s\xe7\xe5\x92\xe2b``\xe0\xf5\xf4p\t\x02\xd2\x02 \xcc\xc1\x06$\xe5?\xffO\x04R\x8c\xc5A\xeeN\x0c\xeb\xce\xc9\xbc\x04rX\xd2\x1d}\x1d\x19\x186\xf6s\xffId\x05\xf29\x0b<"\x8b\x19\x18\xc4TA\x98\xd13H\xe5\x03P\xd0\xce\xd3\xc51\xc4\xc2?\xf9\x87\xbf\xa2\x84\x1f\x9b\x81\x81\x81\xc2\x86\xab,+4x\xee\x1c\xd3\xec\x7f\xd4\x94\x9b)\xc0\xba\x83\xc1\xec\xe7\xc34\x06K\x86v\xc6\xdb\x07\xcc\x14\x93c\x1a\xc2\xf4\x14\xe4x*\x99\xff\xfdgg\xe8\xb9\xb8\xa9\xf3\xfa\x8e\x1f\xf9@\x93\x18<]\xfd\\\xd69%4\x01\x00 >/\xb2')
 _grampy_dir = os.path.expanduser("~/.grampy")
 _grampy_dir = _grampy_dir.replace("\\", "/")
@@ -146,7 +131,12 @@ is_fullscreen = False
 editor = complist = root = None
 match_thread = None
 destroy_list = []
+start_time = time.time_ns()
 match_lock = threading.Lock()
+_sess_dir = "/".join((_grampy_dir, str(start_time)))
+os.makedirs(_sess_dir)
+stdout_path = "/".join((_sess_dir, "output.log"))
+sys.stdout = open(stdout_path, "w")
 
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
@@ -204,18 +194,7 @@ def update_title(widget):
     root.title(title)
 
 
-def show_stdout():
-    global editor
-    if "name" in dir(sys.stdout):
-        editor.pack_forget()
-        editor.config()
-        editor = sys.stdout
-        editor.pack(before=palette, expand=True, fill="both")
-        update_title(editor)
-        apply_config(editor)
-        editor.lower()
-        editor.focus_set()
-
+def show_stdout(): file_open(stdout_path, read_only=True)
 
 def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
@@ -248,7 +227,8 @@ def file_get(path, read_only=False):
     mtime = time.time()
     if path and os.path.exists(path) and os.path.isfile(path):
         mtime = os.path.getmtime(path)
-        data = open(path).read()
+        try: data = open(path).read()
+        except Exception as e: print(e); data = "failed to load "+path
 
     widget = EventText(root, wrap='none', undo=True, **config["text"])
     widget.path = path
@@ -260,11 +240,12 @@ def file_get(path, read_only=False):
     else: widget.tag_regex = re_gen_tags
     widget.mtime = mtime
     widget.insert(tk.END, data)
-    widget.mark_set(tk.INSERT, "1.0")
+    if read_only: widget.mark_set(tk.INSERT, tk.END)
+    else: widget.mark_set(tk.INSERT, "1.0")
     widget.edit_reset()
     widget.edits = False
     widget.read_only = read_only
-    widget.config(state=tk.DISABLED if read_only else tk.NORMAL)
+    if read_only: widget.configure(state=tk.DISABLED)
     widget.edit_modified(False)
     file_info = {"path":path, "editor":widget}
     print("adding: "+key)
@@ -282,7 +263,6 @@ def file_close(path):
     current_file = ""
     if files: file_open(next(iter(files)))
     else: root.quit()
-
 
 
 def set_debug(enabled):
@@ -630,7 +610,10 @@ def cmd_open(text, new_instance=False):
         show_stdout()
         print("opening files matching: "+text)
         root.update()
-        for c in complist.get(0, tk.END): file_open(c, background=True)
+        def open_all(files): 
+            for file in files: file_open(file, background=True)
+            print("done.")
+        threading.Thread(target=open_all, args=([complist.get(0, tk.END)])).start()
     else:
         file_open(text, new_instance)
 
@@ -668,8 +651,6 @@ if os.name == "nt":
 args = sys.argv[1:]
 root = tk.Tk()
 
-sys.stdout = StdoutText(root, wrap='none', **config["text"])
-
 for arg in args:
     if arg.startswith("geo="):
         x,y,width,height = ast.literal_eval(arg.replace("geo=", ""))
@@ -685,7 +666,7 @@ root.configure(background=config["text"]["background"])
 
 root.bind("<Control-s>", lambda _: save_file(current_file))
 root.bind("<Control-m>", lambda _: file_open(conf_path))
-root.bind("<Control-O>", lambda _: show_stdout())
+root.bind("<Control-p>", lambda _: show_stdout())
 
 cmd_register("open", lambda x: cmd_open(*x) , cmd_glob_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
@@ -744,6 +725,7 @@ def watch_file():
     do_update = False
     update_time = 500
     try:
+        sys.stdout.flush()
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
@@ -751,12 +733,16 @@ def watch_file():
             if mtime != editor.mtime:
                 if not editor.edits:
                     editor.mtime = mtime
-                    ins = editor.index(tk.INSERT)
+                    ins = editor.index(tk.INSERT); end = editor.index(tk.END+" - 1c")
+                    if editor.read_only: editor.configure(state=tk.NORMAL)
                     editor.delete("1.0", tk.END)
                     editor.insert(tk.END, open(editor.path).read())
+                    if editor.compare(ins, ">=", end): editor.mark_set(tk.INSERT, tk.END)
+                    else: editor.mark_set(tk.INSERT, ins)
+                    if editor.read_only: editor.configure(state=tk.DISABLED)
+                    editor.see(tk.INSERT)
                     editor.edits = False
                     editor.extern_edits = False
-                    editor.mark_set(tk.INSERT, ins)
                     do_update = True
                     update_title(editor)
                 elif not editor.extern_edits:
