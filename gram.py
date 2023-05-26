@@ -137,6 +137,7 @@ _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
 stdout_path = "/".join((_sess_dir, "output.log"))
 sys.stdout = open(stdout_path, "w")
+max_threads = 32
 
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
@@ -496,7 +497,6 @@ def palette_select_all(event=None):
 # -----------------------------------------------------
 
 def complist_update_start(text, force = False):
-    global match_task
     global last_complist
     global match_thread
     if not root.focus_get(): return
@@ -509,7 +509,7 @@ def complist_update_start(text, force = False):
         if ": " in text:
             cmd, text = text.split(": ", maxsplit=1)
             if cmd in commands and "match_cb" in commands[cmd]:
-                match_func = commands[cmd]["match_cb"]    
+                match_func = commands[cmd]["match_cb"]
         else:
             match_func = lambda x: [k+": " for k in commands if x in k]
 
@@ -518,7 +518,7 @@ def complist_update_start(text, force = False):
             def _match_thread(match_func, text): complist_update_end(text, match_func(text))
             match_thread = threading.Thread(target=_match_thread, args=(match_func, text), name="matching")
             match_thread.start()
-        
+
 
 def complist_update_end(text, matches):
     match_lock.acquire()
@@ -541,7 +541,7 @@ def complist_configure():
     if complist.winfo_height() > editor.winfo_height():
         complist.place_configure(height=editor.winfo_height())
 
-    
+
 def complist_insert(event=None, sel=-1):
     if complist.size() == 0: return "break"
     if sel == -1: sel = complist.curselection()
@@ -579,9 +579,9 @@ def cmd_glob_matches(text):
     if text not in glob_map:
         ret = glob.glob(text, recursive=True)
         glob_map[text] = ret
-    
+
     else: ret = glob_map[text]
-    
+
     if not ret or (len(ret) == 1 and ret[0] == text): ret = cmd_open_matches(text)
     return ret
 
@@ -601,7 +601,7 @@ def cmd_tab_matches(text):
 
 def cmd_exec(text):
     try: exec(text, globals(), locals())
-    except Exception as e: print(e, file=sys.stderr)
+    except Exception as e: print(e)
 
 
 def cmd_open(text, new_instance=False):
@@ -611,14 +611,17 @@ def cmd_open(text, new_instance=False):
         print("opening files matching: "+text)
         root.update()
         def open_all(files):
-            for file in files:
-                threading.Thread(target=lambda x: file_open(x, background=True), args=([file]), name="file_open").start()
-                while threading.active_count() >= 16: time.sleep(0.01)
-            
-            for e in threading.enumerate():
-                if e.name == "file_open": e.join()
-            
+            available_threads = max_threads-(len(threading.enumerate())-1)
+            step = int((len(files)/available_threads)+.5)
+            while len(files) > step and step > 0:
+                args, files = files[:step], files[step:]
+                threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([args]), name="file_open").start()
+            threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([files]), name="file_open").start()
+            root.update()
+            for t in threading.enumerate():
+                if t.name == "file_open": t.join()
             print("done.")
+            
         args = complist.get(0, tk.END)
         if args:
             if len(args) > 1: threading.Thread(target=open_all, args=([args]), name="open_all").start()
