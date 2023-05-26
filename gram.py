@@ -516,7 +516,7 @@ def complist_update_start(text, force = False):
         if match_func:
             if match_thread and match_thread.is_alive(): match_thread.join(timeout=.1)
             def _match_thread(match_func, text): complist_update_end(text, match_func(text))
-            match_thread = threading.Thread(target=_match_thread, args=(match_func, text))
+            match_thread = threading.Thread(target=_match_thread, args=(match_func, text), name="matching")
             match_thread.start()
         
 
@@ -610,10 +610,19 @@ def cmd_open(text, new_instance=False):
         show_stdout()
         print("opening files matching: "+text)
         root.update()
-        def open_all(files): 
-            for file in files: file_open(file, background=True)
+        def open_all(files):
+            for file in files:
+                threading.Thread(target=lambda x: file_open(x, background=True), args=([file]), name="file_open").start()
+                while threading.active_count() >= 16: time.sleep(0.01)
+            
+            for e in threading.enumerate():
+                if e.name == "file_open": e.join()
+            
             print("done.")
-        threading.Thread(target=open_all, args=([complist.get(0, tk.END)])).start()
+        args = complist.get(0, tk.END)
+        if args:
+            if len(args) > 1: threading.Thread(target=open_all, args=([args]), name="open_all").start()
+            else: file_open(args[0], new_instance)
     else:
         file_open(text, new_instance)
 
@@ -711,6 +720,7 @@ apply_config(editor)
 if args and os.path.exists(args[0]): file_open(args[0])
 else:
     readme = os.path.join(os.path.dirname(__file__),"README.md")
+    os.chdir(os.path.expanduser("~"))
     if os.path.exists(readme): file_open(readme, read_only=True)
     else:
         new_file = "new_file.txt"
