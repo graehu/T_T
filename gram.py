@@ -129,7 +129,6 @@ current_file = ""
 debug_output = False
 is_fullscreen = False
 editor = complist = root = None
-match_thread = None
 destroy_list = []
 start_time = time.time_ns()
 match_lock = threading.Lock()
@@ -421,6 +420,7 @@ def update_tags(text: EventText, start="1.0", end=tk.END):
 
 
 def editor_modified(widget):
+    if widget.read_only: return
     widget.edits = True
     update_title(widget)
     args = widget.event_args
@@ -498,7 +498,6 @@ def palette_select_all(event=None):
 
 def complist_update_start(text, force = False):
     global last_complist
-    global match_thread
     if not root.focus_get(): return
     if root.focus_get() == editor: return
     if text != last_complist or force:
@@ -514,10 +513,8 @@ def complist_update_start(text, force = False):
             match_func = lambda x: [k+": " for k in commands if x in k]
 
         if match_func:
-            if match_thread and match_thread.is_alive(): match_thread.join(timeout=.1)
-            def _match_thread(match_func, text): complist_update_end(text, match_func(text))
-            match_thread = threading.Thread(target=_match_thread, args=(match_func, text), name="matching")
-            match_thread.start()
+            def match_thread(match_func, text): complist_update_end(text, match_func(text))
+            threading.Thread(target=match_thread, args=(match_func, text), name="matching").start()
 
 
 def complist_update_end(text, matches):
@@ -607,22 +604,25 @@ def cmd_exec(text):
 def cmd_open(text, new_instance=False):
     if "*" in text:
         complist.place_forget()
+        args = complist.get(0, tk.END)
+        msg = f"opening {len(args)} files matching: {text}"
+        print("".ljust(len(msg), "-"))
+        print(msg)
+        print("".ljust(len(msg), "-"), flush=True)
         show_stdout()
-        print("opening files matching: "+text)
         root.update()
         def open_all(files):
+            threads = []
             available_threads = max_threads-(len(threading.enumerate())-1)
             step = int((len(files)/available_threads)+.5)
             while len(files) > step and step > 0:
                 args, files = files[:step], files[step:]
-                threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([args]), name="file_open").start()
-            threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([files]), name="file_open").start()
-            root.update()
-            for t in threading.enumerate():
-                if t.name == "file_open": t.join()
+                threads.append(threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([args]), name="file_open"))
+            threads.append(threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([files]), name="file_open"))
+            for t in threads: t.start()
+            for t in threads: t.join()
             print("done.")
-            
-        args = complist.get(0, tk.END)
+        
         if args:
             if len(args) > 1: threading.Thread(target=open_all, args=([args]), name="open_all").start()
             else: file_open(args[0], new_instance)
@@ -776,5 +776,4 @@ def watch_file():
 
 watch_file()
 root.mainloop()
-if match_thread and match_thread.is_alive(): match_thread.join(timeout=0.1)
 sys.stdout = sys.__stdout__
