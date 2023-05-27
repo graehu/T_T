@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading
+import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -7,7 +7,9 @@ class Generic:
     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
-    regex     = rf"{brackets}|{symbols}|{number}"
+    links     = r"\b(?P<links>https?://[^\s]*)\b"
+    paths     = r"\b(?P<paths>file://[^\s]*)\b"
+    regex     = rf"{paths}|{links}|{brackets}|{symbols}|{number}"
 
 class Json:
     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
@@ -66,6 +68,7 @@ class EventText(tk.Text):
         self.bind("<Tab>", lambda x: insert_tab(self))
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
+        self.bind("<Control-g>", go_to)
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -109,6 +112,8 @@ config = {
         "string": { "foreground": "lightgreen" },
         "symbols": { "foreground": "white" },
         "brackets": { "foreground": "skyblue" },
+        "paths": { "foreground": "skyblue" },
+        "links": { "foreground": "skyblue" },
         "types": { "foreground": "white" },
         "number": { "foreground": "white" },
         "classdef": { "foreground": "skyblue" },
@@ -212,6 +217,30 @@ def list_path(path):
 
 
 def file_to_key(path): return os.path.abspath(path).replace("\\", "/").lower()
+
+
+def go_to(event):
+    widget : EventText = event.widget
+    if "paths" in widget.tag_names(tk.INSERT):
+        ranges = widget.tag_ranges("paths")
+        ranges = zip(ranges[::2], ranges[1::2])
+        for x,y in ranges:
+            if widget.compare(tk.INSERT, ">", x) and \
+                widget.compare(tk.INSERT, "<", y):
+                path = widget.get(x,y).split("//", maxsplit=1)[1]
+                path = path.split(":",maxsplit=1)[0]
+                paths = [files[p]["path"] for p in files.keys()]
+                paths = zip(paths, shorten_paths(paths))
+                path = next((x for x, y in paths if y.endswith(path)), "")
+                if path: file_open(path)
+    elif "links" in widget.tag_names(tk.INSERT):
+        ranges = widget.tag_ranges("links")
+        ranges = zip(ranges[::2], ranges[1::2])
+        for x,y in ranges:
+            if widget.compare(tk.INSERT, ">", x) and \
+                widget.compare(tk.INSERT, "<", y):
+                webbrowser.open(widget.get(x,y))
+
 
 def file_get(path, read_only=False):
     global files
@@ -422,10 +451,10 @@ def find_all(text):
         msg = f"find all results matching: {text}"
         print(msg, file=log_file)
         print("".ljust(len(msg), "-"), file=log_file)
-        for k, v in zip(shorten_paths(files.keys()), files.values()):
+        for k, v in zip(shorten_paths([f["path"] for f in files.values()]), files.values()):
             for l in search_lines(v["editor"], text):
                 line,row,out = *l[0].split("."), l[1]
-                print(f"{k}:{line}:{row}: {out}", file=log_file)
+                print(f"file://{k}:{line}:{row}: {out}", file=log_file)
     file_open(log_path)
                 
 
