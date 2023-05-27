@@ -404,6 +404,31 @@ def find_text(widget, text, backwards = False):
     return "break"
 
 
+def search_lines(widget, search_text):
+    matching_lines = []
+    start_index = "1.0"
+    while True:
+        start_index = widget.search(search_text, start_index, stopindex=tk.END, nocase=True)
+        if not start_index: break
+        matching_lines.append((start_index,widget.get(f"{start_index} linestart", f"{start_index} lineend")))
+        start_index = f"{start_index}+{len(search_text)}c"
+
+    return matching_lines
+
+
+def find_all(text):
+    log_path = "/".join((_sess_dir,"find_all.log"))
+    with open(log_path, "w") as log_file:
+        msg = f"find all results matching: {text}"
+        print(msg, file=log_file)
+        print("".ljust(len(msg), "-"), file=log_file)
+        for k, v in zip(shorten_paths(files.keys()), files.values()):
+            for l in search_lines(v["editor"], text):
+                line,row,out = *l[0].split("."), l[1]
+                print(f"{k}:{line}:{row}: {out}", file=log_file)
+    file_open(log_path)
+                
+
 def update_tags(text: EventText, start="1.0", end=tk.END):
     if text.tag_regex:
         for tag in text.tag_names():
@@ -683,6 +708,7 @@ root.bind("<Control-p>", lambda _: show_stdout())
 cmd_register("open", lambda x: cmd_open(*x) , cmd_glob_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
+cmd_register("find all", lambda x: find_all(x[0]), shortcut="<Control-F>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 cmd_register("save as", lambda x: (save_file(x[0]), file_open(x[0])), cmd_open_matches, "<Control-S>")
 
