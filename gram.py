@@ -8,7 +8,6 @@ class Generic:
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
     links     = r"\b(?P<links>(file://|https?://)[^\s]*)\b"
-    # paths     = r"\b(?P<paths>file://[^\s]*)\b"
     regex     = rf"{links}|{brackets}|{symbols}|{number}"
 
 class Json:
@@ -239,15 +238,15 @@ def goto_link(event):
                     else: line=char=0
                     paths = [files[p]["path"] for p in files.keys()]
                     paths = zip(paths, shorten_paths(paths))
-                    path = next((x for x, y in paths if y.endswith(path)), "")
-                    if path: file_open(path,tindex=f"{line}.{char}")
+                    tab_path = next((x for x, y in paths if y.endswith(path)), "")
+                    if tab_path: file_open(tab_path,tindex=f"{line}.{char}")
+                    elif os.path.exists(path): file_open(path)
 
 
 def file_get(path, read_only=False):
     global files
     key = file_to_key(path)
     if key in files:
-        print("getting: "+key)
         info = files.pop(key)
         files = {**{key:info}, **files}
         return info
@@ -278,7 +277,6 @@ def file_get(path, read_only=False):
     if read_only: widget.configure(state=tk.DISABLED)
     widget.edit_modified(False)
     file_info = {"path":path, "editor":widget}
-    print("adding: "+key)
     files = {**{key:file_info}, **files}
     return file_info
 
@@ -287,7 +285,7 @@ def file_close(path):
     global current_file
     global files
     key = file_to_key(path)
-    print("removing: "+key)
+    print("close: file://"+path)
     info = files.pop(key)
     destroy_list.append(info["editor"])
     current_file = ""
@@ -324,8 +322,8 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
     if os.path.isdir(path): return
-    if background: file_get(path, read_only); return
-    if not new_inst:
+    if background: file_get(path, read_only)
+    elif not new_inst:
         current_file = path
         editor.pack_forget()
         editor.config()
@@ -341,6 +339,7 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
         editor.focus_set()
     elif os.path.exists(path):
         spawn(path)
+    print("open: file://"+path)
 
 
 def get_next_break(widget, backwards=True):
@@ -453,10 +452,13 @@ def find_all(text):
         msg = f"find all results matching: {text}"
         print(msg, file=log_file)
         print("".ljust(len(msg), "-"), file=log_file)
+        start = time.time()
         for k, v in zip(shorten_paths([f["path"] for f in files.values()]), files.values()):
             for l in search_lines(v["editor"], text):
                 line,row,out = *l[0].split("."), l[1]
                 print(f"file://{k}:{line}:{row}: {out}", file=log_file)
+        print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
+        
     file_open(log_path)
 
 
@@ -669,6 +671,7 @@ def cmd_open(text, new_instance=False):
         root.update()
         def open_all(files):
             threads = []
+            start = time.time()
             available_threads = max_threads-(len(threading.enumerate())-1)
             step = int((len(files)/available_threads)+.5)
             while len(files) > step and step > 0:
@@ -677,7 +680,8 @@ def cmd_open(text, new_instance=False):
             threads.append(threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([files]), name="file_open"))
             for t in threads: t.start()
             for t in threads: t.join()
-            print("done.")
+            print(f"\ndone. {time.time()-start:.2f} secs")
+            print("".ljust(32, "-"))
         
         if args:
             if len(args) > 1: threading.Thread(target=open_all, args=([args]), name="open_all").start()
