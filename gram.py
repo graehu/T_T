@@ -257,8 +257,7 @@ def file_get(path, read_only=False):
     if path and os.path.exists(path) and os.path.isfile(path):
         mtime = os.path.getmtime(path)
         try: data = open(path).read()
-        except Exception as e: print(e); data = "failed to load "+path
-
+        except Exception as e: print("error: file://"+path+" - "+str(e)); return None
     widget = EventText(root, wrap='none', undo=True, **config["text"])
     widget.path = path
     widget.name = name
@@ -322,7 +321,8 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
     if os.path.isdir(path): return
-    if background: file_get(path, read_only)
+    if background:
+        if file_get(path, read_only) == None: return
     elif not new_inst:
         current_file = path
         editor.pack_forget()
@@ -780,11 +780,10 @@ palette.bind("<Down>", lambda x: (complist.focus_set(), complist.select_set(0)) 
 palette.configure(borderwidth=0)
 palette.pack(fill="x")
 apply_config(editor)
-
+os.chdir(os.path.expanduser("~"))
 if args and os.path.exists(args[0]): file_open(args[0])
 else:
     readme = os.path.join(os.path.dirname(__file__),"README.md")
-    os.chdir(os.path.expanduser("~"))
     if os.path.exists(readme): file_open(readme, read_only=True)
     else:
         new_file = "new_file.txt"
