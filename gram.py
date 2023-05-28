@@ -235,7 +235,7 @@ def goto_link(event):
                     path = link.split("//", maxsplit=1)[1]
                     path, *loc = path.split(":")
                     if len(loc) == 2: line,char = loc
-                    elif len(loc) == 1: line = loc; char = 0
+                    elif len(loc) == 1: line = loc[0]; char = 0
                     else: line=char=0
                     paths = [files[p]["path"] for p in files.keys()]
                     paths = zip(paths, shorten_paths(paths))
