@@ -7,9 +7,9 @@ class Generic:
     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
-    links     = r"\b(?P<links>https?://[^\s]*)\b"
-    paths     = r"\b(?P<paths>file://[^\s]*)\b"
-    regex     = rf"{paths}|{links}|{brackets}|{symbols}|{number}"
+    links     = r"\b(?P<links>(file://|https?://)[^\s]*)\b"
+    # paths     = r"\b(?P<paths>file://[^\s]*)\b"
+    regex     = rf"{links}|{brackets}|{symbols}|{number}"
 
 class Json:
     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
@@ -68,7 +68,7 @@ class EventText(tk.Text):
         self.bind("<Tab>", lambda x: insert_tab(self))
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
-        self.bind("<Control-g>", go_to)
+        self.bind("<Control-g>", goto_link)
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -219,27 +219,28 @@ def list_path(path):
 def file_to_key(path): return os.path.abspath(path).replace("\\", "/").lower()
 
 
-def go_to(event):
+def goto_link(event):
     widget : EventText = event.widget
-    if "paths" in widget.tag_names(tk.INSERT):
-        ranges = widget.tag_ranges("paths")
-        ranges = zip(ranges[::2], ranges[1::2])
-        for x,y in ranges:
-            if widget.compare(tk.INSERT, ">", x) and \
-                widget.compare(tk.INSERT, "<", y):
-                path = widget.get(x,y).split("//", maxsplit=1)[1]
-                path = path.split(":",maxsplit=1)[0]
-                paths = [files[p]["path"] for p in files.keys()]
-                paths = zip(paths, shorten_paths(paths))
-                path = next((x for x, y in paths if y.endswith(path)), "")
-                if path: file_open(path)
-    elif "links" in widget.tag_names(tk.INSERT):
+    if "links" in widget.tag_names(tk.INSERT):
         ranges = widget.tag_ranges("links")
         ranges = zip(ranges[::2], ranges[1::2])
         for x,y in ranges:
             if widget.compare(tk.INSERT, ">", x) and \
                 widget.compare(tk.INSERT, "<", y):
-                webbrowser.open(widget.get(x,y))
+
+                link = widget.get(x,y)
+                if link.startswith("http://") or link.startswith("https://"):
+                    webbrowser.open(widget.get(x,y))
+                else:
+                    path = link.split("//", maxsplit=1)[1]
+                    path, *loc = path.split(":")
+                    if len(loc) == 2: line,char = loc
+                    elif len(loc) == 1: line = loc; char = 0
+                    else: line=char=0
+                    paths = [files[p]["path"] for p in files.keys()]
+                    paths = zip(paths, shorten_paths(paths))
+                    path = next((x for x, y in paths if y.endswith(path)), "")
+                    if path: file_open(path,tindex=f"{line}.{char}")
 
 
 def file_get(path, read_only=False):
@@ -314,7 +315,7 @@ def save_file(path):
             if path == conf_path: apply_config(editor)
 
 
-def file_open(path, new_inst=False, read_only=False, background=False):
+def file_open(path, new_inst=False, read_only=False, background=False, tindex=None):
     global root
     global current_file
     global editor
@@ -330,6 +331,7 @@ def file_open(path, new_inst=False, read_only=False, background=False):
         editor.config()
         file_info = file_get(current_file, read_only)
         editor = file_info["editor"]
+        if tindex: editor.mark_set(tk.INSERT, tindex); editor.see(tk.INSERT)
         apply_config(editor)
         editor.pack(before=palette, expand=True, fill="both")
         update_title(editor)
@@ -456,7 +458,7 @@ def find_all(text):
                 line,row,out = *l[0].split("."), l[1]
                 print(f"file://{k}:{line}:{row}: {out}", file=log_file)
     file_open(log_path)
-                
+
 
 def update_tags(text: EventText, start="1.0", end=tk.END):
     if text.tag_regex:
