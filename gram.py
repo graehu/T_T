@@ -136,6 +136,8 @@ editor = complist = root = None
 destroy_list = []
 start_time = time.time_ns()
 match_lock = threading.Lock()
+gui_lock = threading.Lock()
+file_lock = threading.Lock()
 _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
 stdout_path = "/".join((_sess_dir, "output.log"))
@@ -146,10 +148,12 @@ if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
+def is_main_thread(): return threading.current_thread() is threading.main_thread()
 
 def share_work(worker, in_args):
     threads = []
-    available_threads = min(max_threads-(len(threading.enumerate())-1), 16)
+    available_threads = max_threads-(len(threading.enumerate())-1)
+    print(f"using {available_threads} threads")
     step = int((len(in_args)/available_threads)+.5)
     while len(in_args) > step and step > 0:
         args, in_args = in_args[:step], in_args[step:]
@@ -260,7 +264,9 @@ def file_get(path, read_only=False, cache=None):
     key = file_to_key(path)
     if key in files:
         info = files.pop(key)
+        if not is_main_thread(): file_lock.acquire()
         files = {**{key:info}, **files}
+        if not is_main_thread(): file_lock.release()
         return info
     name = os.path.basename(path)
     _, ext = os.path.splitext(path)
@@ -274,7 +280,10 @@ def file_get(path, read_only=False, cache=None):
     else:
         data = cache; mtime = 0
     
+    if not is_main_thread(): gui_lock.acquire()
     widget = EventText(root, wrap='none', undo=True, **config["text"])
+    root.update()
+    if not is_main_thread(): gui_lock.release()
     widget.path = path
     widget.name = name
     widget.ext = ext
@@ -292,7 +301,9 @@ def file_get(path, read_only=False, cache=None):
     if read_only: widget.configure(state=tk.DISABLED)
     widget.edit_modified(False)
     file_info = {"path":path, "editor":widget}
+    if not is_main_thread(): file_lock.acquire()
     files = {**{key:file_info}, **files}
+    if not is_main_thread(): file_lock.release()
     return file_info
 
 
@@ -355,7 +366,7 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
         editor.focus_set()
     elif os.path.exists(path):
         spawn(path)
-    print("open: file://"+path)
+    if not background: print("open: file://"+path)
 
 
 def get_next_break(widget, backwards=True):
@@ -465,7 +476,7 @@ def search_lines(widget, search_text):
 def find_all(text):
     log_path = "/".join((_sess_dir,"find_all.log"))
     with open(log_path, "w") as log_file:
-        msg = f"find all results matching: {text}"
+        msg = f"find all results matching: {text}\nin {len(files)} files"
         print(msg, file=log_file)
         print("".ljust(len(msg), "-"), file=log_file)
         start = time.time()
@@ -833,7 +844,7 @@ else:
 def watch_file():
     global conf_mtime
     do_update = False
-    update_time = 500
+    update_time = 100
     try:
         sys.stdout.flush()
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
