@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser
+import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser, pickle, shutil
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -111,7 +111,6 @@ config = {
         "string": { "foreground": "lightgreen" },
         "symbols": { "foreground": "white" },
         "brackets": { "foreground": "skyblue" },
-        "paths": { "foreground": "skyblue" },
         "links": { "foreground": "skyblue" },
         "types": { "foreground": "white" },
         "number": { "foreground": "white" },
@@ -126,6 +125,7 @@ files = {}
 commands = {}
 op_args = {}
 glob_map = {}
+cache_name = ""
 tag_line_stride = 128
 tab_spaces = 4
 last_complist = ""
@@ -145,6 +145,18 @@ max_threads = 32
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
+
+
+def share_work(worker, in_args):
+    threads = []
+    available_threads = min(max_threads-(len(threading.enumerate())-1), 16)
+    step = int((len(in_args)/available_threads)+.5)
+    while len(in_args) > step and step > 0:
+        args, in_args = in_args[:step], in_args[step:]
+        threads.append(threading.Thread(target=worker, args=([args]), name=worker.__name__))
+    threads.append(threading.Thread(target=worker, args=([in_args]), name=worker.__name__))
+    for t in threads: t.start()
+    for t in threads: t.join()
 
 
 def step_tags() -> bool:
@@ -198,7 +210,7 @@ def update_title(widget):
     root.title(title)
 
 
-def show_stdout(): file_open(stdout_path, read_only=True)
+def show_stdout(): file_open(stdout_path, read_only=True); root.update()
 
 def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
@@ -243,7 +255,7 @@ def goto_link(event):
                     elif os.path.exists(path): file_open(path)
 
 
-def file_get(path, read_only=False):
+def file_get(path, read_only=False, cache=None):
     global files
     key = file_to_key(path)
     if key in files:
@@ -253,11 +265,15 @@ def file_get(path, read_only=False):
     name = os.path.basename(path)
     _, ext = os.path.splitext(path)
     data = ""
-    mtime = time.time()
-    if path and os.path.exists(path) and os.path.isfile(path):
-        mtime = os.path.getmtime(path)
-        try: data = open(path).read()
-        except Exception as e: print("error: file://"+path+" - "+str(e)); return None
+    if not cache:
+        mtime = time.time()
+        if path and os.path.exists(path) and os.path.isfile(path):
+            mtime = os.path.getmtime(path)
+            try: data = open(path).read()
+            except Exception as e: print("error: file://"+path+" - "+str(e)); return None
+    else:
+        data = cache; mtime = 0
+    
     widget = EventText(root, wrap='none', undo=True, **config["text"])
     widget.path = path
     widget.name = name
@@ -626,7 +642,7 @@ def cmd_open_matches(text):
     expanded = os.path.expanduser(path)
     if expanded and (os.path.exists(expanded)): ret = list_path(expanded)
     else: ret = list_path(os.curdir)
-    return list(filter(file_filter, ret))
+    return sorted(filter(file_filter, ret), key=lambda x: x.lower().index(basename))
 
 
 def cmd_glob_matches(text):
@@ -650,7 +666,15 @@ def cmd_tab_matches(text):
         base_word = low_word.replace(dirname, "")
         return (basename in base_word) or (fnmatch.fnmatch(low_word, low_text))
     paths = [files[p]["path"] for p in files.keys()]
-    if paths: return list(filter(file_filter, shorten_paths(paths)))
+    if paths: return sorted(filter(file_filter, shorten_paths(paths)), key=lambda x: x.lower().index(basename) if basename in x else 999)
+    return []
+
+
+def cmd_cache_matches(text):
+    low_text = text.lower()
+    def file_filter(word): return (low_text in word.lower())
+    paths = [f.replace(".pkl", "") for f in os.listdir(_grampy_dir) if f.endswith(".pkl")]
+    if paths: return sorted(filter(file_filter, paths), key=lambda x: x.lower().index(low_text))
     return []
 
 
@@ -670,16 +694,8 @@ def cmd_open(text, new_instance=False):
         show_stdout()
         root.update()
         def open_all(files):
-            threads = []
             start = time.time()
-            available_threads = max_threads-(len(threading.enumerate())-1)
-            step = int((len(files)/available_threads)+.5)
-            while len(files) > step and step > 0:
-                args, files = files[:step], files[step:]
-                threads.append(threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([args]), name="file_open"))
-            threads.append(threading.Thread(target=lambda x: list(map(lambda y: file_open(y, background=True), x)), args=([files]), name="file_open"))
-            for t in threads: t.start()
-            for t in threads: t.join()
+            share_work(lambda x: list(map(lambda y: file_open(y, background=True), x)), files)
             print(f"\ndone. {time.time()-start:.2f} secs")
             print("".ljust(32, "-"))
         
@@ -696,6 +712,24 @@ def cmd_tab(text, new_instance=False):
     path = next((x for x, y in paths if y.endswith(text)), "")
     if path: file_open(path, new_instance)
     palette.delete(len("tab: "), tk.END)
+
+
+def cmd_cache(text, new_instance=False):
+    global cache_name
+    cache_name = text
+    print("Setting cache to "+cache_name)
+    show_stdout()
+    if os.path.exists("/".join((_grampy_dir, text+".pkl"))):
+        pkl_files = pickle.load(open("/".join((_grampy_dir, text+".pkl")), "rb"))
+        print(f"Loading {len(pkl_files)} files from '{cache_name}' cache")
+        def file_cache(in_files):
+            start = time.time()            
+            in_files = list(in_files.items())
+            def cache_open(files):
+                for k,v in files: file_get(k, cache=v)
+            share_work(cache_open, in_files)
+            print(f"done. {time.time()-start:.2f} secs")
+        threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
@@ -728,6 +762,7 @@ for arg in args:
         x,y,width,height = ast.literal_eval(arg.replace("geo=", ""))
         root.geometry('%dx%d+%d+%d' % (width, height, x, y))
         break
+    
 
 if os.name == "nt": root.title("")
 else: root.title("grampy")
@@ -742,6 +777,8 @@ root.bind("<Control-p>", lambda _: show_stdout())
 
 cmd_register("open", lambda x: cmd_open(*x) , cmd_glob_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
+cmd_register("cache", lambda x: cmd_cache(*x), cmd_cache_matches, "<Control-i>")
+
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
 cmd_register("find all", lambda x: find_all(x[0]), shortcut="<Control-F>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
@@ -836,4 +873,13 @@ def watch_file():
 
 watch_file()
 root.mainloop()
+
 sys.stdout = sys.__stdout__
+for file in os.listdir(_sess_dir):
+    key = file_to_key("/".join((_sess_dir, file)))
+    if key in files: files.pop(key)
+time.sleep(.1)
+shutil.rmtree(_sess_dir, ignore_errors=True)
+if cache_name:
+    files = {k: v["editor"].get("1.0", tk.END) for k,v in files.items()}
+    pickle.dump(files, open("/".join((_grampy_dir, cache_name+".pkl")), "wb"))
