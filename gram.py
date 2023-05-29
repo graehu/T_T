@@ -150,10 +150,10 @@ br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
 def is_main_thread(): return threading.current_thread() is threading.main_thread()
 
-def share_work(worker, in_args):
+def share_work(worker, in_args, log_file=None):
     threads = []
     available_threads = max_threads-(len(threading.enumerate())-1)
-    print(f"using {available_threads} threads")
+    print(f"using {available_threads} threads", file=log_file)
     step = int((len(in_args)/available_threads)+.5)
     while len(in_args) > step and step > 0:
         args, in_args = in_args[:step], in_args[step:]
@@ -259,14 +259,41 @@ def goto_link(event):
                     elif os.path.exists(path): file_open(path)
 
 
+def file_create(path, name, ext, mtime, read_only, data):
+    if is_main_thread():
+        print("this is happening for "+path)
+        print((path, name, ext, mtime, read_only, data))
+        widget = EventText(root, wrap='none', undo=True, **config["text"])
+        root.update()
+        widget.path = path
+        widget.name = name
+        widget.ext = ext
+        if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
+        elif ext in [".json"]: widget.tag_regex = re_json_tags
+        elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
+        else: widget.tag_regex = re_gen_tags
+        widget.mtime = mtime
+        widget.insert(tk.END, data)
+        if read_only: widget.mark_set(tk.INSERT, tk.END)
+        else: widget.mark_set(tk.INSERT, "1.0")
+        widget.edit_reset()
+        widget.edits = False
+        widget.read_only = read_only
+        if read_only: widget.configure(state=tk.DISABLED)
+        widget.edit_modified(False)
+    else: widget = [path, name, ext, mtime, read_only]
+    return widget
+
+
 def file_get(path, read_only=False, cache=None):
     global files
     key = file_to_key(path)
     if key in files:
         info = files.pop(key)
-        if not is_main_thread(): file_lock.acquire()
+        if not is_main_thread(): file_lock.acquire(); gui_lock.acquire()
+        if isinstance(info["editor"], list): info["editor"] = file_create(*info["editor"], info["data"])
         files = {**{key:info}, **files}
-        if not is_main_thread(): file_lock.release()
+        if not is_main_thread(): file_lock.release(); gui_lock.release()
         return info
     name = os.path.basename(path)
     _, ext = os.path.splitext(path)
@@ -278,29 +305,11 @@ def file_get(path, read_only=False, cache=None):
             try: data = open(path).read()
             except Exception as e: print("error: file://"+path+" - "+str(e)); return None
     else:
-        data = cache; mtime = 0
+        data = cache
+        mtime = 0
     
-    if not is_main_thread(): gui_lock.acquire()
-    widget = EventText(root, wrap='none', undo=True, **config["text"])
-    root.update()
-    if not is_main_thread(): gui_lock.release()
-    widget.path = path
-    widget.name = name
-    widget.ext = ext
-    if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
-    elif ext in [".json"]: widget.tag_regex = re_json_tags
-    elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
-    else: widget.tag_regex = re_gen_tags
-    widget.mtime = mtime
-    widget.insert(tk.END, data)
-    if read_only: widget.mark_set(tk.INSERT, tk.END)
-    else: widget.mark_set(tk.INSERT, "1.0")
-    widget.edit_reset()
-    widget.edits = False
-    widget.read_only = read_only
-    if read_only: widget.configure(state=tk.DISABLED)
-    widget.edit_modified(False)
-    file_info = {"path":path, "editor":widget}
+    widget = file_create(path, name, ext, mtime, read_only, data)
+    file_info = {"path":path, "editor":widget, "data": data}
     if not is_main_thread(): file_lock.acquire()
     files = {**{key:file_info}, **files}
     if not is_main_thread(): file_lock.release()
@@ -325,11 +334,14 @@ def set_debug(enabled):
 
 
 def save_file(path):
+    global files
     if not os.path.exists(path) or os.path.isfile(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as output_file:
             text = editor.get(1.0, 'end-1c')
             output_file.write(text)
+            key = file_to_key(path)
+            if key in files: files[key]["data"] = text
             if path == current_file:
                 editor.edits = False
                 editor.extern_edits = False
@@ -478,15 +490,28 @@ def find_all(text):
     with open(log_path, "w") as log_file:
         msg = f"find all results matching: {text}\nin {len(files)} files"
         print(msg, file=log_file)
-        print("".ljust(len(msg), "-"), file=log_file)
+        print("".ljust(len(msg), "-"), file=log_file, flush=True)
+        file_open(log_path)
+        root.update()
         start = time.time()
-        for k, v in zip(shorten_paths([f["path"] for f in files.values()]), files.values()):
-            for l in search_lines(v["editor"], text):
-                line,row,out = *l[0].split("."), l[1]
-                print(f"file://{k}:{line}:{row}: {out}", file=log_file)
+        args = list(zip(shorten_paths([f["path"] for f in files.values() if f["path"] != log_path]), files.values()))
+        def worker(args):
+            nonlocal log_file
+            for k, v in args:
+                if isinstance(v["editor"], list):
+                    lines = v["data"].split("\n"); i = 0
+                    for line in lines:
+                        try: i += 1; print(f"file://{k}:{i}:{line.index(text)}: {line}", file=log_file)
+                        except Exception as e: pass
+                else:
+                    for l in search_lines(v["editor"], text):
+                        line,row,out = *l[0].split("."), l[1]
+                        print(f"file://{k}:{line}:{row}: {out}", file=log_file)
+                    
+        # share_work(worker, args, log_file=log_file)
+        worker(args)
         print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
-        
-    file_open(log_path)
+    
 
 
 def update_tags(text: EventText, start="1.0", end=tk.END):
@@ -788,10 +813,10 @@ root.bind("<Control-p>", lambda _: show_stdout())
 
 cmd_register("open", lambda x: cmd_open(*x) , cmd_glob_matches, "<Control-o>")
 cmd_register("tab", lambda x: cmd_tab(*x), cmd_tab_matches, "<Control-t>")
-cmd_register("cache", lambda x: cmd_cache(*x), cmd_cache_matches, "<Control-i>")
+cmd_register("cache", lambda x: cmd_cache(*x), cmd_cache_matches, "<Control-k>")
 
 cmd_register("find", lambda x: find_text(editor, *x), shortcut="<Control-f>")
-cmd_register("find all", lambda x: find_all(x[0]), shortcut="<Control-F>")
+cmd_register("find all", lambda x: find_all(x[0]), shortcut="<Control-j>")
 cmd_register("exec", lambda x: cmd_exec(x[0]), shortcut="<Control-e>")
 cmd_register("save as", lambda x: (save_file(x[0]), file_open(x[0])), cmd_open_matches, "<Control-S>")
 
@@ -892,5 +917,5 @@ for file in os.listdir(_sess_dir):
 time.sleep(.1)
 shutil.rmtree(_sess_dir, ignore_errors=True)
 if cache_name:
-    files = {k: v["editor"].get("1.0", tk.END) for k,v in files.items()}
+    files = {k: v["data"] for k,v in files.items()}
     pickle.dump(files, open("/".join((_grampy_dir, cache_name+".pkl")), "wb"))
