@@ -125,7 +125,6 @@ files = {}
 commands = {}
 op_args = {}
 glob_map = {}
-cache_name = ""
 tag_line_stride = 128
 tab_spaces = 4
 last_complist = ""
@@ -136,6 +135,7 @@ editor = complist = root = None
 destroy_list = []
 start_time = time.time_ns()
 match_lock = threading.Lock()
+work_lock = threading.Lock()
 gui_lock = threading.Lock()
 print_lock = threading.Lock()
 file_lock = threading.Lock()
@@ -152,6 +152,7 @@ br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 def is_main_thread(): return threading.current_thread() is threading.main_thread()
 
 def share_work(worker, in_args, log_file=None):
+    work_lock.acquire()
     threads = []
     available_threads = max_threads-(len(threading.enumerate())-1)
     start = time.time()
@@ -162,8 +163,9 @@ def share_work(worker, in_args, log_file=None):
         threads.append(threading.Thread(target=worker, args=([args]), name=worker.__name__))
     threads.append(threading.Thread(target=worker, args=([in_args]), name=worker.__name__))
     for t in threads: t.start()
-    for t in threads: t.join()
+    while any([t.is_alive() for t in threads]): safe_update(); time.sleep(.1)
     print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
+    work_lock.release()
 
 def step_tags() -> bool:
     lines = int(editor.index('end-1c').split('.')[0])
@@ -300,19 +302,17 @@ def file_get(path, read_only=False, cache=None):
         return info
     name = os.path.basename(path)
     _, ext = os.path.splitext(path)
-    lines = []
-    if not cache:
-        mtime = time.time()
-        if path and os.path.exists(path) and os.path.isfile(path):
-            mtime = os.path.getmtime(path)
+    if cache: lines, mtime = cache
+    else: lines = []; mtime = 0
+    if path and os.path.exists(path) and os.path.isfile(path):
+        nmtime = os.path.getmtime(path)
+        if nmtime != mtime:
+            mtime = nmtime
             try: lines = open(path).readlines()
             except Exception as e: print("error: file://"+path+" - "+str(e)); return None
-    else:
-        lines = cache
-        mtime = 0
     
     widget = file_create(path, name, ext, mtime, read_only, lines)
-    file_info = {"path":path, "editor":widget, "lines": lines}
+    file_info = {"path":path, "editor":widget, "lines": lines, "mtime": mtime}
     if not is_main_thread(): file_lock.acquire()
     files = {**{key:file_info}, **files}
     if not is_main_thread(): file_lock.release()
@@ -503,16 +503,12 @@ def find_all(text):
                 for line in lines:
                     i += 1
                     row = line.find(text)
-                    if row != -1:
-                        safe_print(f"file://{k}:{i}:{row}: {line.strip()}", file=log_file)
-                        safe_update()
-                    
+                    if row != -1: safe_print(f"file://{k}:{i}:{row}: {line.strip()}", file=log_file)
             else:
                 if v["editor"].path == log_path: continue
                 for l in search_lines(v["editor"], text):
                     line,row,out = *l[0].split("."), l[1]
                     safe_print(f"file://{k}:{line}:{row}: {out}", file=log_file)
-                    safe_update()
     def do_work(): share_work(find_worker, args, log_file=log_file)
     threading.Thread(target=do_work).start()
         
@@ -713,10 +709,17 @@ def cmd_tab_matches(text):
 
 def cmd_cache_matches(text):
     low_text = text.lower()
+    cmd, *args = low_text.split(" ")
+    low_text = "_".join(args)
     def file_filter(word): return (low_text in word.lower())
-    paths = [f.replace(".pkl", "") for f in os.listdir(_grampy_dir) if f.endswith(".pkl")]
-    if paths: return sorted(filter(file_filter, paths), key=lambda x: x.lower().index(low_text))
-    return []
+    if cmd in ["load", "save"]:
+        paths = [f.replace(".pkl", "") for f in os.listdir(_grampy_dir) if f.endswith(".pkl")]
+        if paths:
+            out = sorted(filter(file_filter, paths), key=lambda x: x.lower().index(low_text))
+            return [f"{cmd} {o}" for o in out]
+    elif low_text in "load" or low_text in "save":
+        return sorted(filter(file_filter, ["load ", "save "]), key=lambda x: x.lower().index(low_text))
+    return ["load ", "save "]
 
 
 def cmd_exec(text):
@@ -753,19 +756,27 @@ def cmd_tab(text, new_instance=False):
 
 
 def cmd_cache(text, new_instance=False):
-    global cache_name
-    cache_name = text
-    print("Setting cache to "+cache_name)
-    show_stdout()
-    if os.path.exists("/".join((_grampy_dir, text+".pkl"))):
-        pkl_files = pickle.load(open("/".join((_grampy_dir, text+".pkl")), "rb"))
-        print(f"Loading {len(pkl_files)} files from '{cache_name}' cache")
-        def file_cache(in_files):
-            in_files = list(in_files.items())
-            def cache_worker(files):
-                for k,v in files: file_get(k, cache=v)
-            share_work(cache_worker, in_files)
-        threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
+    cmd, *args = text.split(" ")
+    if cmd == "load":
+        cache_name = "_".join(args)
+        print("Loading cache "+cache_name)
+        show_stdout()
+        if os.path.exists("/".join((_grampy_dir, cache_name+".pkl"))):
+            pkl_files = pickle.load(open("/".join((_grampy_dir, cache_name+".pkl")), "rb"))
+            print(f"Loading {len(pkl_files)} files from '{cache_name}' cache")
+            def file_cache(in_files):
+                in_files = list(in_files.items())
+                def cache_worker(files):
+                    for k,v in files: file_get(k, cache=v)
+                share_work(cache_worker, in_files)
+            threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
+    elif cmd == "save":
+        cache_name = "_".join(args)
+        print("Saving cache "+cache_name)
+        if cache_name:
+            cache = {v["path"]: [v["lines"], v["mtime"]] for k,v in files.items()}
+            pickle.dump(cache, open("/".join((_grampy_dir, cache_name+".pkl")), "wb"))
+        pass
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
@@ -872,6 +883,7 @@ def watch_file():
     update_time = 100
     try:
         sys.stdout.flush()
+        # print(time.time, file=sys.__stdout__)
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
@@ -916,6 +928,3 @@ for file in os.listdir(_sess_dir):
     if key in files: files.pop(key)
 time.sleep(.1)
 shutil.rmtree(_sess_dir, ignore_errors=True)
-if cache_name:
-    files = {k: v["lines"] for k,v in files.items()}
-    pickle.dump(files, open("/".join((_grampy_dir, cache_name+".pkl")), "wb"))
