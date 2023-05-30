@@ -137,6 +137,7 @@ destroy_list = []
 start_time = time.time_ns()
 match_lock = threading.Lock()
 gui_lock = threading.Lock()
+print_lock = threading.Lock()
 file_lock = threading.Lock()
 _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
@@ -153,7 +154,8 @@ def is_main_thread(): return threading.current_thread() is threading.main_thread
 def share_work(worker, in_args, log_file=None):
     threads = []
     available_threads = max_threads-(len(threading.enumerate())-1)
-    print(f"using {available_threads} threads", file=log_file)
+    start = time.time()
+    print(f"starting {worker.__name__} jobs using {available_threads} threads to split {len(in_args)} work items", file=log_file)
     step = int((len(in_args)/available_threads)+.5)
     while len(in_args) > step and step > 0:
         args, in_args = in_args[:step], in_args[step:]
@@ -161,7 +163,7 @@ def share_work(worker, in_args, log_file=None):
     threads.append(threading.Thread(target=worker, args=([in_args]), name=worker.__name__))
     for t in threads: t.start()
     for t in threads: t.join()
-
+    print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
 
 def step_tags() -> bool:
     lines = int(editor.index('end-1c').split('.')[0])
@@ -215,6 +217,8 @@ def update_title(widget):
 
 
 def show_stdout(): file_open(stdout_path, read_only=True); root.update()
+def safe_print(*args, **kwargs): print_lock.acquire(); print(*args, **kwargs); print_lock.release()
+def safe_update(): gui_lock.acquire(); root.update(); gui_lock.release()
 
 def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
@@ -248,7 +252,9 @@ def goto_link(event):
                     webbrowser.open(widget.get(x,y))
                 else:
                     path = link.split("//", maxsplit=1)[1]
-                    path, *loc = path.split(":")
+                    dir, base = os.path.split(path)
+                    base, *loc = base.split(":")
+                    path = "/".join((dir, base))
                     if len(loc) == 2: line,char = loc
                     elif len(loc) == 1: line = loc[0]; char = 0
                     else: line=char=0
@@ -256,15 +262,12 @@ def goto_link(event):
                     paths = zip(paths, shorten_paths(paths))
                     tab_path = next((x for x, y in paths if y.endswith(path)), "")
                     if tab_path: file_open(tab_path,tindex=f"{line}.{char}")
-                    elif os.path.exists(path): file_open(path)
+                    elif os.path.exists(path): file_open(path, tindex=f"{line}.{char}")
 
 
-def file_create(path, name, ext, mtime, read_only, data):
+def file_create(path, name, ext, mtime, read_only, lines):
     if is_main_thread():
-        print("this is happening for "+path)
-        print((path, name, ext, mtime, read_only, data))
         widget = EventText(root, wrap='none', undo=True, **config["text"])
-        root.update()
         widget.path = path
         widget.name = name
         widget.ext = ext
@@ -273,7 +276,7 @@ def file_create(path, name, ext, mtime, read_only, data):
         elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
         else: widget.tag_regex = re_gen_tags
         widget.mtime = mtime
-        widget.insert(tk.END, data)
+        widget.insert(tk.END, "".join(lines))
         if read_only: widget.mark_set(tk.INSERT, tk.END)
         else: widget.mark_set(tk.INSERT, "1.0")
         widget.edit_reset()
@@ -291,25 +294,25 @@ def file_get(path, read_only=False, cache=None):
     if key in files:
         info = files.pop(key)
         if not is_main_thread(): file_lock.acquire(); gui_lock.acquire()
-        if isinstance(info["editor"], list): info["editor"] = file_create(*info["editor"], info["data"])
+        if isinstance(info["editor"], list): info["editor"] = file_create(*info["editor"], info["lines"])
         files = {**{key:info}, **files}
         if not is_main_thread(): file_lock.release(); gui_lock.release()
         return info
     name = os.path.basename(path)
     _, ext = os.path.splitext(path)
-    data = ""
+    lines = []
     if not cache:
         mtime = time.time()
         if path and os.path.exists(path) and os.path.isfile(path):
             mtime = os.path.getmtime(path)
-            try: data = open(path).read()
+            try: lines = open(path).readlines()
             except Exception as e: print("error: file://"+path+" - "+str(e)); return None
     else:
-        data = cache
+        lines = cache
         mtime = 0
     
-    widget = file_create(path, name, ext, mtime, read_only, data)
-    file_info = {"path":path, "editor":widget, "data": data}
+    widget = file_create(path, name, ext, mtime, read_only, lines)
+    file_info = {"path":path, "editor":widget, "lines": lines}
     if not is_main_thread(): file_lock.acquire()
     files = {**{key:file_info}, **files}
     if not is_main_thread(): file_lock.release()
@@ -341,7 +344,7 @@ def save_file(path):
             text = editor.get(1.0, 'end-1c')
             output_file.write(text)
             key = file_to_key(path)
-            if key in files: files[key]["data"] = text
+            if key in files: files[key]["lines"] = text.splitlines()
             if path == current_file:
                 editor.edits = False
                 editor.extern_edits = False
@@ -487,30 +490,32 @@ def search_lines(widget, search_text):
 
 def find_all(text):
     log_path = "/".join((_sess_dir,"find_all.log"))
-    with open(log_path, "w") as log_file:
-        msg = f"find all results matching: {text}\nin {len(files)} files"
-        print(msg, file=log_file)
-        print("".ljust(len(msg), "-"), file=log_file, flush=True)
-        file_open(log_path)
-        root.update()
-        start = time.time()
-        args = list(zip(shorten_paths([f["path"] for f in files.values() if f["path"] != log_path]), files.values()))
-        def worker(args):
-            nonlocal log_file
-            for k, v in args:
-                if isinstance(v["editor"], list):
-                    lines = v["data"].split("\n"); i = 0
-                    for line in lines:
-                        try: i += 1; print(f"file://{k}:{i}:{line.index(text)}: {line}", file=log_file)
-                        except Exception as e: pass
-                else:
-                    for l in search_lines(v["editor"], text):
-                        line,row,out = *l[0].split("."), l[1]
-                        print(f"file://{k}:{line}:{row}: {out}", file=log_file)
+    log_file = open(log_path, "w")
+    msg = f"find all results matching: {text}\nin {len(files)} files"
+    print(msg, file=log_file)
+    print("".ljust(len(msg), "-"), file=log_file, flush=True)
+    file_open(log_path); root.update()
+    args = list(zip([f["path"] for f in files.values()], files.values()))
+    def find_worker(args):
+        for k, v in args:
+            if isinstance(v["editor"], list):
+                lines = v["lines"]; i = 0
+                for line in lines:
+                    i += 1
+                    row = line.find(text)
+                    if row != -1:
+                        safe_print(f"file://{k}:{i}:{row}: {line.strip()}", file=log_file)
+                        safe_update()
                     
-        # share_work(worker, args, log_file=log_file)
-        worker(args)
-        print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
+            else:
+                if v["editor"].path == log_path: continue
+                for l in search_lines(v["editor"], text):
+                    line,row,out = *l[0].split("."), l[1]
+                    safe_print(f"file://{k}:{line}:{row}: {out}", file=log_file)
+                    safe_update()
+    def do_work(): share_work(find_worker, args, log_file=log_file)
+    threading.Thread(target=do_work).start()
+        
     
 
 
@@ -729,12 +734,9 @@ def cmd_open(text, new_instance=False):
         print("".ljust(len(msg), "-"), flush=True)
         show_stdout()
         root.update()
-        def open_all(files):
-            start = time.time()
-            share_work(lambda x: list(map(lambda y: file_open(y, background=True), x)), files)
-            print(f"\ndone. {time.time()-start:.2f} secs")
-            print("".ljust(32, "-"))
-        
+        def open_worker(x):
+            for y in x: file_open(y, background=True)
+        def open_all(files): share_work(open_worker, files)
         if args:
             if len(args) > 1: threading.Thread(target=open_all, args=([args]), name="open_all").start()
             else: file_open(args[0], new_instance)
@@ -759,12 +761,10 @@ def cmd_cache(text, new_instance=False):
         pkl_files = pickle.load(open("/".join((_grampy_dir, text+".pkl")), "rb"))
         print(f"Loading {len(pkl_files)} files from '{cache_name}' cache")
         def file_cache(in_files):
-            start = time.time()            
             in_files = list(in_files.items())
-            def cache_open(files):
+            def cache_worker(files):
                 for k,v in files: file_get(k, cache=v)
-            share_work(cache_open, in_files)
-            print(f"done. {time.time()-start:.2f} secs")
+            share_work(cache_worker, in_files)
         threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
 
 
@@ -917,5 +917,5 @@ for file in os.listdir(_sess_dir):
 time.sleep(.1)
 shutil.rmtree(_sess_dir, ignore_errors=True)
 if cache_name:
-    files = {k: v["data"] for k,v in files.items()}
+    files = {k: v["lines"] for k,v in files.items()}
     pickle.dump(files, open("/".join((_grampy_dir, cache_name+".pkl")), "wb"))
