@@ -710,7 +710,7 @@ def cmd_tab_matches(text):
 def cmd_cache_matches(text):
     low_text = text.lower()
     cmd, *args = low_text.split(" ")
-    low_text = "_".join(args)
+    low_text = "_".join(args) if args else cmd
     def file_filter(word): return (low_text in word.lower())
     if cmd in ["load", "save"]:
         paths = [f.replace(".pkl", "") for f in os.listdir(_grampy_dir) if f.endswith(".pkl")]
