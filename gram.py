@@ -139,6 +139,8 @@ work_lock = threading.Lock()
 gui_lock = threading.Lock()
 print_lock = threading.Lock()
 file_lock = threading.Lock()
+should_loop = True
+def stop_app(): global should_loop; should_loop = False; root.quit()
 _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
 stdout_path = "/".join((_sess_dir, "output.log"))
@@ -156,15 +158,15 @@ def share_work(worker, in_args, log_file=None):
     threads = []
     available_threads = max_threads-(len(threading.enumerate())-1)
     start = time.time()
-    print(f"starting {worker.__name__} jobs using {available_threads} threads to split {len(in_args)} work items", file=log_file)
+    safe_print(f"starting {worker.__name__} jobs using {available_threads} threads to split {len(in_args)} work items", flush=True, file=log_file)
     step = int((len(in_args)/available_threads)+.5)
     while len(in_args) > step and step > 0:
         args, in_args = in_args[:step], in_args[step:]
         threads.append(threading.Thread(target=worker, args=([args]), name=worker.__name__))
     threads.append(threading.Thread(target=worker, args=([in_args]), name=worker.__name__))
     for t in threads: t.start()
-    while any([t.is_alive() for t in threads]): safe_update(); time.sleep(.1)
-    print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
+    for t in threads: t.join()
+    safe_print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
     work_lock.release()
 
 def step_tags() -> bool:
@@ -220,7 +222,7 @@ def update_title(widget):
 
 def show_stdout(): file_open(stdout_path, read_only=True); root.update()
 def safe_print(*args, **kwargs): print_lock.acquire(); print(*args, **kwargs); print_lock.release()
-def safe_update(): gui_lock.acquire(); root.update(); gui_lock.release()
+# def safe_update(): gui_lock.acquire(); root.update(); gui_lock.release()
 
 def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
@@ -328,7 +330,7 @@ def file_close(path):
     destroy_list.append(info["editor"])
     current_file = ""
     if files: file_open(next(iter(files)))
-    else: root.quit()
+    else: stop_app()
 
 
 def set_debug(enabled):
@@ -736,7 +738,6 @@ def cmd_open(text, new_instance=False):
         print(msg)
         print("".ljust(len(msg), "-"), flush=True)
         show_stdout()
-        root.update()
         def open_worker(x):
             for y in x: file_open(y, background=True)
         def open_all(files): share_work(open_worker, files)
@@ -759,7 +760,7 @@ def cmd_cache(text, new_instance=False):
     cmd, *args = text.split(" ")
     if cmd == "load":
         cache_name = "_".join(args)
-        print("Loading cache "+cache_name)
+        print("Loading cache "+cache_name, flush=True)
         show_stdout()
         if os.path.exists("/".join((_grampy_dir, cache_name+".pkl"))):
             pkl_files = pickle.load(open("/".join((_grampy_dir, cache_name+".pkl")), "rb"))
@@ -803,6 +804,7 @@ if os.name == "nt":
 
 args = sys.argv[1:]
 root = tk.Tk()
+root.protocol("WM_DELETE_WINDOW", stop_app)
 
 for arg in args:
     if arg.startswith("geo="):
@@ -876,14 +878,12 @@ else:
             new_file = f"new_file{i}.txt"
         file_open(new_file)
 
-
 def watch_file():
     global conf_mtime
     do_update = False
-    update_time = 100
+    update_time = 1
     try:
         sys.stdout.flush()
-        # print(time.time, file=sys.__stdout__)
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
@@ -920,6 +920,9 @@ def watch_file():
     root.after(update_time, watch_file)
 
 watch_file()
+def update_gui():
+    while should_loop: root.update()
+threading.Thread(target=update_gui).start()
 root.mainloop()
 
 sys.stdout = sys.__stdout__
