@@ -6,17 +6,14 @@ import tkinter.font as tkfont
 class Generic:
     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
+    string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
     links     = r"\b(?P<links>(file://|https?://)[^\s]*)\b"
-    regex     = rf"{links}|{brackets}|{symbols}|{number}"
-
-class Json:
-    string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    regex     = rf"{string}|{Generic.symbols}|{Generic.brackets}|{Generic.number}"
+    regex     = rf"{links}|{string}|{brackets}|{symbols}|{number}"
 
 class Xml:
     tag       = r"(?P<brackets><\/?(?P<xmltag>[\w]+)|>)"
-    regex     = rf"{Json.string}|{Generic.symbols}|{Generic.number}|{tag}"
+    regex     = rf"{Generic.string}|{Generic.symbols}|{Generic.number}|{tag}"
 
 class Py:
     keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
@@ -35,7 +32,6 @@ class Py:
     regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{instance}|{decorator}|{number}|{classdef}"
 
 re_py_tags = re.compile(Py.regex, re.S)
-re_json_tags = re.compile(Json.regex, re.S)
 re_xml_tags = re.compile(Xml.regex, re.S)
 re_gen_tags = re.compile(Generic.regex, re.S)
 
@@ -139,8 +135,6 @@ work_lock = threading.Lock()
 gui_lock = threading.Lock()
 print_lock = threading.Lock()
 file_lock = threading.Lock()
-should_loop = True
-def stop_app(): global should_loop; should_loop = False; root.quit()
 _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
 stdout_path = "/".join((_sess_dir, "output.log"))
@@ -165,7 +159,7 @@ def share_work(worker, in_args, log_file=None):
         threads.append(threading.Thread(target=worker, args=([args]), name=worker.__name__))
     threads.append(threading.Thread(target=worker, args=([in_args]), name=worker.__name__))
     for t in threads: t.start()
-    for t in threads: t.join()
+    while any([t.is_alive() for t in threads]): time.sleep(0.01)
     safe_print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
     work_lock.release()
 
@@ -222,7 +216,6 @@ def update_title(widget):
 
 def show_stdout(): file_open(stdout_path, read_only=True); root.update()
 def safe_print(*args, **kwargs): print_lock.acquire(); print(*args, **kwargs); print_lock.release()
-# def safe_update(): gui_lock.acquire(); root.update(); gui_lock.release()
 
 def shorten_paths(paths):
     tails, tops = list(zip(*[os.path.split(p) for p in paths]))
@@ -276,7 +269,6 @@ def file_create(path, name, ext, mtime, read_only, lines):
         widget.name = name
         widget.ext = ext
         if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
-        elif ext in [".json"]: widget.tag_regex = re_json_tags
         elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
         else: widget.tag_regex = re_gen_tags
         widget.mtime = mtime
@@ -330,7 +322,7 @@ def file_close(path):
     destroy_list.append(info["editor"])
     current_file = ""
     if files: file_open(next(iter(files)))
-    else: stop_app()
+    else: root.quit()
 
 
 def set_debug(enabled):
@@ -755,6 +747,17 @@ def cmd_tab(text, new_instance=False):
     if path: file_open(path, new_instance)
     palette.delete(len("tab: "), tk.END)
 
+def load_cache(cache_name):
+    global files
+    file_lock.acquire(); files = {}; file_lock.release()
+    pkl_files = pickle.load(open("/".join((_grampy_dir, cache_name+".pkl")), "rb"))
+    print(f"Loading {len(pkl_files)} files from '{cache_name}' cache")
+    def file_cache(in_files):
+        in_files = list(in_files.items())
+        def cache_worker(files):
+            for k,v in files: file_get(k, cache=v)
+        share_work(cache_worker, in_files)
+    threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
 
 def cmd_cache(text, new_instance=False):
     cmd, *args = text.split(" ")
@@ -763,14 +766,8 @@ def cmd_cache(text, new_instance=False):
         print("Loading cache "+cache_name, flush=True)
         show_stdout()
         if os.path.exists("/".join((_grampy_dir, cache_name+".pkl"))):
-            pkl_files = pickle.load(open("/".join((_grampy_dir, cache_name+".pkl")), "rb"))
-            print(f"Loading {len(pkl_files)} files from '{cache_name}' cache")
-            def file_cache(in_files):
-                in_files = list(in_files.items())
-                def cache_worker(files):
-                    for k,v in files: file_get(k, cache=v)
-                share_work(cache_worker, in_files)
-            threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
+            threading.Thread(target=load_cache, args=[cache_name]).start()
+            
     elif cmd == "save":
         cache_name = "_".join(args)
         print("Saving cache "+cache_name)
@@ -804,7 +801,6 @@ if os.name == "nt":
 
 args = sys.argv[1:]
 root = tk.Tk()
-root.protocol("WM_DELETE_WINDOW", stop_app)
 
 for arg in args:
     if arg.startswith("geo="):
@@ -884,6 +880,7 @@ def watch_file():
     update_time = 1
     try:
         sys.stdout.flush()
+        # print(time.time(), file=sys.__stdout__)
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
@@ -920,9 +917,6 @@ def watch_file():
     root.after(update_time, watch_file)
 
 watch_file()
-def update_gui():
-    while should_loop: root.update()
-threading.Thread(target=update_gui).start()
 root.mainloop()
 
 sys.stdout = sys.__stdout__
