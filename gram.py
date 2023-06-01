@@ -488,16 +488,15 @@ def find_all(text):
     msg = f"find all results matching: {text}\nin {len(files)} files"
     print(msg, file=log_file)
     print("".ljust(len(msg), "-"), file=log_file, flush=True)
-    file_open(log_path); root.update()
+    file_open(log_path, read_only=True); root.update()
     args = list(zip([f["path"] for f in files.values()], files.values()))
+    pat = re.compile(text)
     def find_worker(args):
         for k, v in args:
             if isinstance(v["editor"], list):
-                lines = v["lines"]; i = 0
-                for line in lines:
-                    i += 1
-                    row = line.find(text)
-                    if row != -1: safe_print(f"file://{k}:{i}:{row}: {line.strip()}", file=log_file)
+                lines = v["lines"]
+                lines = [f"file://{k}:{l[0]}: {l[1].strip()}" for l in zip(range(1, len(lines)), lines) if pat.search(l[1])]
+                for l in lines: safe_print(l, file=log_file)
             else:
                 if v["editor"].path == log_path: continue
                 for l in search_lines(v["editor"], text):
