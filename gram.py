@@ -37,9 +37,11 @@ re_gen_tags = re.compile(Generic.regex, re.S)
 
 class EventText(tk.Text):
     event_args = tag_regex = None
+    text_config = {}
     path = name = ext = ""
     edits = extern_edits = read_only = False
-    mtime = tag_line = 0
+    mtime = tag_line = lines = 0
+    cursor_label = None
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
         self._orig = self._w + "_orig"
@@ -69,7 +71,16 @@ class EventText(tk.Text):
         cmd = (self._orig, command) + args
         result = ""
         try:
+            # print(args, file=sys.__stdout__)
+            # print(" ".join((command, *args)), file=sys.__stdout__)
+            # if cmd
             result = self.tk.call(cmd)
+            if command == "configure": self.cursor_label.destroy(); self.cursor_label = None
+            if self.read_only and " ".join((command, *args)).startswith("mark set insert"):
+                if self.cursor_label == None: self.cursor_label = tk.Frame(root, height=self.text_config["font"][1]*2, width=2)
+                x1, y1 = self.bbox(tk.INSERT)[:2]
+                self.cursor_label.place(x=x1, y=y1)
+
             if debug_output: print(cmd)
             if command in ("insert", "delete", "replace"):
                 self.event_args = args
@@ -164,8 +175,7 @@ def share_work(worker, in_args, log_file=None):
     work_lock.release()
 
 def step_tags() -> bool:
-    lines = int(editor.index('end-1c').split('.')[0])
-    if editor.tag_line < lines:
+    if editor.tag_line < editor.lines:
         start, end = editor.tag_line, editor.tag_line+128
         update_tags(editor, f"{start}.0", f"{end}.0")
         editor.tag_line = end
@@ -195,10 +205,12 @@ def apply_config(widget):
         font = (font, fontsize)
         if not "font" in text_config: text_config["font"] = font
         text_config.update({"font":font, "relief": "flat", "borderwidth":0})
+        widget.text_config = text_config
         widget.configure(inactiveselectbackground=text_config["selectbackground"], **text_config)
         palette.configure(**text_config)
         del text_config["insertbackground"]
         complist.configure(**text_config)
+        del text_config["selectforeground"] ; del text_config["selectbackground"]
         for k in widget.tag_names(): widget.tag_delete(k)
         for k in tags_config: widget.tag_configure(k, tags_config[k])
     except Exception as e:
@@ -526,6 +538,7 @@ def update_tags(text: EventText, start="1.0", end=tk.END):
 def editor_modified(widget):
     if widget.read_only: return
     widget.edits = True
+    widget.lines = int(widget.index('end-1c').split('.')[0])
     update_title(widget)
     args = widget.event_args
     start = end = widget.index(tk.INSERT)
@@ -710,9 +723,9 @@ def cmd_cache_matches(text):
         if paths:
             out = sorted(filter(file_filter, paths), key=lambda x: x.lower().index(low_text))
             return [f"{cmd} {o}" for o in out]
-    elif low_text in "load" or low_text in "save":
-        return sorted(filter(file_filter, ["load ", "save "]), key=lambda x: x.lower().index(low_text))
-    return ["load ", "save "]
+    elif low_text in "load" or low_text in "save" or low_text in "clear":
+        return sorted(filter(file_filter, ["load ", "save ", "clear"]), key=lambda x: x.lower().index(low_text))
+    return ["load ", "save ", "clear"]
 
 
 def cmd_exec(text):
@@ -758,7 +771,9 @@ def load_cache(cache_name):
         share_work(cache_worker, in_files)
     threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
 
+
 def cmd_cache(text, new_instance=False):
+    global files
     cmd, *args = text.split(" ")
     if cmd == "load":
         cache_name = "_".join(args)
@@ -769,11 +784,16 @@ def cmd_cache(text, new_instance=False):
             
     elif cmd == "save":
         cache_name = "_".join(args)
-        print("Saving cache "+cache_name)
+        print(f"Saving {len(files)} files to {cache_name}", flush=True)
+        print(f"Clearing cache of {len(files)} files.", flush=True)
         if cache_name:
             cache = {v["path"]: [v["lines"], v["mtime"]] for k,v in files.items()}
             pickle.dump(cache, open("/".join((_grampy_dir, cache_name+".pkl")), "wb"))
-        pass
+
+    elif cmd == "clear":
+        print(f"Clearing cache of {len(files)} files.", flush=True)
+        show_stdout()
+        file_lock.acquire(); files = {}; file_lock.release()
 
 
 def cmd_register(name, command, match_cb=None, shortcut=None):
