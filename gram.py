@@ -44,6 +44,7 @@ class EventText(tk.Text):
     edits = extern_edits = read_only = False
     mtime = tag_line = lines = 0
     cursor_label = None
+    highlights = language = parser = tree = None
     lock = None
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
@@ -75,9 +76,19 @@ class EventText(tk.Text):
         cmd = (self._orig, command) + args
         result = ""
         try:
-            # print(args, file=sys.__stdout__)
-            # print(" ".join((command, *args)), file=sys.__stdout__)
-            # if cmd
+            edits = []
+            if command in ("insert", "delete", "replace"):
+                if self.tree != None:
+                    if command == "insert":
+                        start = self.count("1.0", args[0])[0]
+                        amount = len(args[1])
+                        edits = [start, start, start+amount, (start, start), (start, start), (start, start+amount)]
+                    elif command == "delete":
+                        start = self.count("1.0", args[0])[0]
+                        if len(args) > 1: amount = self.count("1.0", args[1])[0] - start
+                        else: amount = 1
+                        edits = [start, start+amount, start, (start, start), (start, start+amount), (start, start)]
+                        
             result = self.tk.call(cmd)
             if command == "configure" and self.cursor_label: self.cursor_label.destroy(); self.cursor_label = None
             if self.read_only and " ".join((command, *args)).startswith("mark set insert"):
@@ -86,9 +97,14 @@ class EventText(tk.Text):
                 if bbox :=self.bbox(tk.INSERT):
                     x1, y1 = bbox[:2]
                     self.cursor_label.place(x=x1, y=y1)
+            
 
             if debug_output: print(cmd)
             if command in ("insert", "delete", "replace"):
+                text = self.get("1.0", "end - 1c")
+                if edits:
+                    self.tree.edit(*edits)
+                    self.tree = self.parser.parse(text.encode(),self.tree)
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
             # if command in ("yview", "xview"):
@@ -116,6 +132,7 @@ config = {
         "highlightcolor": "gray24",
         "highlightbackground": "gray20"
     },
+    "tree-sitter": {"search_path": "~/github/"},
     "tags": {
         "number": { "foreground": "white" },
         "property": { "foreground": "teal" },
@@ -533,7 +550,63 @@ def find_all(text):
                     safe_print(f"file://{k}:{line}:{row}: {out}", file=log_file)
     def do_work(): share_work(find_worker, args, log_file=log_file)
     threading.Thread(target=do_work).start()
+
+
+def init_treesitter(widget: EventText):
+    try:
+        # treesitter_span = re.compile(r'\(([^\(]*) \[(.*?)\] - \[(.*?)\]')
+        # output = subprocess.Popen(["tree-sitter","parse",temp.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # output = output.stdout.read().decode()
+        # if output: print(output)
+        # found = treesitter_span.findall(output)
+        # tid = lambda x: ".".join((lambda y: [str(int(y[0])+1), y[1]])(x.split(", ")))
+        # if found:
+        #     for key,start,end in found:
+        #         print(key)
+        #         if not key in tags: tags[key] = [[tid(start), tid(end)]]
+        #         else: tags[key].extend([[tid(start), tid(end)]])
+        from tree_sitter import Language, Parser
+        text = widget.get("1.0", "end - 1c")
+        dir = os.path.expanduser(config["tree-sitter"]["search_path"])
+        sitter = "tree-sitter-"
+        sitter_dll = "/".join([_grampy_dir, "treesitter.dll"])
+        languages = {d.replace(sitter, ""):{"path":dir+d, "info":json.load(open(dir+d+"/package.json"))} for d in os.listdir(dir) if d.startswith(sitter)}
+        Language.build_library(sitter_dll, [l["path"] for _,l in languages.items()])
         
+        def get_language(path):
+            _, ext = os.path.splitext(path)
+            ext = ext[1:]
+            for k,v in languages.items():
+                infos = v["info"]["tree-sitter"]
+                for info in infos:
+                    exts = info["file-types"]
+                    if ext in exts: return Language(sitter_dll, k)
+        
+        def get_highlights(name):
+            highlights = []
+            if name in languages:
+                infos = languages[name]["info"]["tree-sitter"]
+                for info in infos:
+                    if "highlights" in info:
+                        for highlight in info["highlights"]:
+                            if sitter in highlight:
+                                highlights.append(dir+sitter+highlight.split(sitter, maxsplit=1)[1])
+                            elif highlight.startswith("queries"):
+                                highlights.append(dir+sitter+name+"/"+highlight)
+                    else:
+                        highlights = [f"{dir}{sitter}{name}/queries/highlights.scm"]
+            return highlights
+        lang = get_language(widget.path)
+        if lang:
+            widget.language = lang
+            widget.highlights = get_highlights(lang.name)
+            parser = Parser(); parser.set_language(lang)
+            widget.parser = parser
+            widget.tree = parser.parse(text.encode())
+
+    except Exception as e:
+        print(widget.path+" tree-sitter error: "+str(e), file=sys.__stdout__)
+    
 
 def update_tags(widget: EventText):
     print("updating tags", file=sys.__stdout__)
@@ -542,66 +615,19 @@ def update_tags(widget: EventText):
         # file_lock.acquire()
         text = widget.get("1.0", "end - 1c")
         tags = {}
-        try:
-            # treesitter_span = re.compile(r'\(([^\(]*) \[(.*?)\] - \[(.*?)\]')
-            # output = subprocess.Popen(["tree-sitter","parse",temp.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # output = output.stdout.read().decode()
-            # if output: print(output)
-            # found = treesitter_span.findall(output)
-            # tid = lambda x: ".".join((lambda y: [str(int(y[0])+1), y[1]])(x.split(", ")))
-            # if found:
-            #     for key,start,end in found:
-            #         print(key)
-            #         if not key in tags: tags[key] = [[tid(start), tid(end)]]
-            #         else: tags[key].extend([[tid(start), tid(end)]])
-            from tree_sitter import Language, Parser
-            dir = os.path.expanduser("~/github/")
-            sitter = "tree-sitter-"
-            sitter_dll = "/".join([_grampy_dir, "treesitter.dll"])
-            languages = {d.replace(sitter, ""):{"path":dir+d, "info":json.load(open(dir+d+"/package.json"))} for d in os.listdir(dir) if d.startswith(sitter)}
-            Language.build_library(sitter_dll, [l["path"] for _,l in languages.items()])
-            
-            def get_language(path):
-                _, ext = os.path.splitext(path)
-                ext = ext[1:]
-                for k,v in languages.items():
-                    infos = v["info"]["tree-sitter"]
-                    for info in infos:
-                        exts = info["file-types"]
-                        if ext in exts: return Language(sitter_dll, k)
-            
-            def get_highlights(name):
-                highlights = []
-                if name in languages:
-                    infos = languages[name]["info"]["tree-sitter"]
-                    for info in infos:
-                        if "highlights" in info:
-                            for highlight in info["highlights"]:
-                                if sitter in highlight:
-                                    highlights.append(dir+sitter+highlight.split(sitter, maxsplit=1)[1])
-                                elif highlight.startswith("queries"):
-                                    highlights.append(dir+sitter+name+"/"+highlight)
-                        else:
-                            highlights = [f"{dir}{sitter}{name}/queries/highlights.scm"]
-                return highlights
-            lang = get_language(widget.path)
-            if lang:
-                parser = Parser(); parser.set_language(lang)
-                out_tree = parser.parse(text.encode())
-                for highlight in get_highlights(lang.name):
-                    if os.path.exists(highlight): highlight = open(highlight).read()
-                    else: highlight = None
-                    if highlight:
-                        query = lang.query(highlight)
-                        captures = query.captures(out_tree.root_node)
-                        for capture in captures:
-                            info, key = capture
-                            tid = lambda y: f"{y[0]+1}.{y[1]}"
-                            if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point)]]
-                            else: tags[key].extend([[tid(info.start_point), tid(info.end_point)]])
-            
-        except Exception as e:
-            print(widget.path+" tree-sitter error: "+str(e), file=sys.__stdout__)
+        if widget.language == None: init_treesitter(widget)
+        if widget.highlights:
+            for highlight in widget.highlights:
+                if os.path.exists(highlight): highlight = open(highlight).read()
+                else: highlight = None
+                if highlight:
+                    query = widget.language.query(highlight)
+                    captures = query.captures(widget.tree.root_node)
+                    for capture in captures:
+                        info, key = capture
+                        tid = lambda y: f"{y[0]+1}.{y[1]}"
+                        if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point)]]
+                        else: tags[key].extend([[tid(info.start_point), tid(info.end_point)]])
 
         if tags: print(tags.keys())
         re_link = re.compile(r"\b(?P<links>(file://|https?://)[^\s]*)\b", re.S)
