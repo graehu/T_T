@@ -1,43 +1,45 @@
 #!/usr/bin/env python3
-import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser, pickle, shutil
+import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser, pickle, shutil, tempfile
 import tkinter as tk
 import tkinter.font as tkfont
 
-class Generic:
-    brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
-    number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
-    string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
-    links     = r"\b(?P<links>(file://|https?://)[^\s]*)\b"
-    regex     = rf"{links}|{string}|{brackets}|{symbols}|{number}"
+# class Generic:
+#     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
+#     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
+#     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
+#     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
+#     links     = r"\b(?P<links>(file://|https?://)[^\s]*)\b"
+#     regex     = rf"{links}|{string}|{brackets}|{symbols}|{number}"
 
-class Xml:
-    tag       = r"(?P<brackets><\/?(?P<xmltag>[\w]+)|>)"
-    regex     = rf"{Generic.string}|{Generic.symbols}|{Generic.number}|{tag}"
+# class Xml:
+#     tag       = r"(?P<brackets><\/?(?P<xmltag>[\w]+)|>)"
+#     regex     = rf"{Generic.string}|{Generic.symbols}|{Generic.number}|{tag}"
 
-class Py:
-    keyword   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
-    exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
-    builtin   = r"([^.'\"\\#]\b|^)(?P<builtin>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
-    docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
-    string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-    types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
-    symbols   = Generic.symbols
-    brackets  = Generic.brackets
-    number    = Generic.number
-    classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
-    decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
-    instance  = r"\b(?P<instance>super|self|cls)\b"
-    comment   = r"(?P<comment>#[^\n]*)"
-    regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{instance}|{decorator}|{number}|{classdef}"
+# class Py:
+#     identifier   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
+#     exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
+#     builtin   = r"([^.'\"\\#]\b|^)(?P<builtin>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
+#     docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
+#     string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
+#     types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
+#     symbols   = Generic.symbols
+#     brackets  = Generic.brackets
+#     number    = Generic.number
+#     classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
+#     decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
+#     instance  = r"\b(?P<instance>super|self|cls)\b"
+#     comment   = r"(?P<comment>#[^\n]*)"
+#     regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{instance}|{decorator}|{number}|{classdef}"
 
-re_py_tags = re.compile(Py.regex, re.S)
-re_xml_tags = re.compile(Xml.regex, re.S)
-re_gen_tags = re.compile(Generic.regex, re.S)
+# re_py_tags = re.compile(Py.regex, re.S)
+# re_xml_tags = re.compile(Xml.regex, re.S)
+# re_gen_tags = re.compile(Generic.regex, re.S)
+
 
 class EventText(tk.Text):
-    event_args = tag_regex = None
+    event_args = None
     text_config = {}
+    tags = {}
     path = name = ext = ""
     edits = extern_edits = read_only = False
     mtime = tag_line = lines = 0
@@ -75,11 +77,13 @@ class EventText(tk.Text):
             # print(" ".join((command, *args)), file=sys.__stdout__)
             # if cmd
             result = self.tk.call(cmd)
-            if command == "configure": self.cursor_label.destroy(); self.cursor_label = None
+            if command == "configure" and self.cursor_label: self.cursor_label.destroy(); self.cursor_label = None
             if self.read_only and " ".join((command, *args)).startswith("mark set insert"):
-                if self.cursor_label == None: self.cursor_label = tk.Frame(root, height=self.text_config["font"][1]*2, width=2)
-                x1, y1 = self.bbox(tk.INSERT)[:2]
-                self.cursor_label.place(x=x1, y=y1)
+                if self.cursor_label == None:
+                    self.cursor_label = tk.Frame(root, height=self.text_config["font"][1]*2, width=2)
+                if bbox :=self.bbox(tk.INSERT):
+                    x1, y1 = bbox[:2]
+                    self.cursor_label.place(x=x1, y=y1)
 
             if debug_output: print(cmd)
             if command in ("insert", "delete", "replace"):
@@ -111,20 +115,28 @@ config = {
         "highlightbackground": "gray20"
     },
     "tags": {
-        "keyword": { "foreground": "hotpink" },
-        "exception": { "foreground": "red" },
-        "builtin": { "foreground": "gold" },
-        "docstring": { "foreground": "skyblue" },
-        "string": { "foreground": "lightgreen" },
-        "symbols": { "foreground": "white" },
-        "brackets": { "foreground": "skyblue" },
-        "links": { "foreground": "skyblue" },
-        "types": { "foreground": "white" },
         "number": { "foreground": "white" },
-        "classdef": { "foreground": "skyblue" },
-        "decorator": { "foreground": "gold" },
+        "property": { "foreground": "teal" },
+        "constant": { "foreground": "yellow" },
+        "attribute": { "foreground": "orange" },
+        "punctuation.bracket": { "foreground": "white" },
         "comment": { "foreground": "green" },
-        "xmltag": { "foreground": "skyblue" }
+        "function.builtin": { "foreground": "teal" },
+        "constant.builtin": { "foreground": "cyan" },
+        "punctuation.delimiter": { "foreground": "white" },
+        "string.special": { "foreground": "limegreen" },
+        "tag": { "foreground": "blue" },
+        "type.builtin": { "foreground": "skyblue" },
+        "embedded": { "foreground": "grey" },
+        "variable.builtin": { "foreground": "limegreen" },
+        "function": { "foreground": "orange" },
+        "type": { "foreground": "orange" },
+        "variable.parameter": { "foreground": "white" },
+        "string": { "foreground": "lightgreen" },
+        "module": { "foreground": "purple" },
+        "operator": { "foreground": "white" },
+        "keyword": { "foreground": "magenta" },
+        "constructor": { "foreground": "green" }
     }
 }
 
@@ -152,7 +164,9 @@ stdout_path = "/".join((_sess_dir, "output.log"))
 sys.stdout = open(stdout_path, "w")
 max_threads = 32
 
-if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
+if not os.path.exists(conf_path):
+    pass
+json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
@@ -174,13 +188,13 @@ def share_work(worker, in_args, log_file=None):
     safe_print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
     work_lock.release()
 
-def step_tags() -> bool:
-    if editor.tag_line < editor.lines:
-        start, end = editor.tag_line, editor.tag_line+128
-        update_tags(editor, f"{start}.0", f"{end}.0")
-        editor.tag_line = end
-        return True
-    return False
+# def step_tags() -> bool:
+#     if editor.tag_line < editor.lines:
+#         start, end = editor.tag_line, editor.tag_line+128
+#         update_tags(editor, f"{start}.0", f"{end}.0")
+#         editor.tag_line = end
+#         return True
+#     return False
 
 
 def spawn(path):
@@ -280,9 +294,9 @@ def file_create(path, name, ext, mtime, read_only, lines):
         widget.path = path
         widget.name = name
         widget.ext = ext
-        if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
-        elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
-        else: widget.tag_regex = re_gen_tags
+        # if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
+        # elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
+        # else: widget.tag_regex = re_gen_tags
         widget.mtime = mtime
         widget.insert(tk.END, "".join(lines))
         if read_only: widget.mark_set(tk.INSERT, tk.END)
@@ -331,7 +345,7 @@ def file_close(path):
     key = file_to_key(path)
     print("close: file://"+path)
     info = files.pop(key)
-    destroy_list.append(info["editor"])
+    if info and not isinstance(info["editor"], list): destroy_list.append(info["editor"])
     current_file = ""
     if files: file_open(next(iter(files)))
     else: root.quit()
@@ -372,6 +386,7 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
     if background:
         if file_get(path, read_only) == None: return
     elif not new_inst:
+        if path == current_file: return
         current_file = path
         editor.pack_forget()
         editor.config()
@@ -381,8 +396,10 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
         apply_config(editor)
         editor.pack(before=palette, expand=True, fill="both")
         update_title(editor)
-        editor.tag_line = 1
-        step_tags()
+        update_tags(editor)
+        # editor.tag_line = 1
+
+        # step_tags()
         editor.lower()
         editor.focus_set()
     elif os.path.exists(path):
@@ -517,46 +534,137 @@ def find_all(text):
     def do_work(): share_work(find_worker, args, log_file=log_file)
     threading.Thread(target=do_work).start()
         
-    
 
+def update_tags(widget: EventText):
+    print("updating tags", file=sys.__stdout__)
+    def internal_update(widget: EventText):
+        # if file_lock.locked(): return
+        file_lock.acquire()
+        text = widget.get("1.0", "end - 1c")
+        temp = open("/".join([_sess_dir, "highlight"+widget.ext]), "w")
+        temp.write(text)
+        temp.close()
+        tags = {}
+        try:
+            # treesitter_span = re.compile(r'\(([^\(]*) \[(.*?)\] - \[(.*?)\]')
+            # output = subprocess.Popen(["tree-sitter","parse",temp.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # output = output.stdout.read().decode()
+            # if output: print(output)
+            # found = treesitter_span.findall(output)
+            # tid = lambda x: ".".join((lambda y: [str(int(y[0])+1), y[1]])(x.split(", ")))
+            # if found:
+            #     for key,start,end in found:
+            #         print(key)
+            #         if not key in tags: tags[key] = [[tid(start), tid(end)]]
+            #         else: tags[key].extend([[tid(start), tid(end)]])
+            from tree_sitter import Language, Parser
+            dir = os.path.expanduser("~/github/")
+            sitter = "tree-sitter-"
+            sitter_dll = "/".join([_grampy_dir, "treesitter.dll"])
+            languages = {d.replace(sitter, ""):{"path":dir+d, "info":json.load(open(dir+d+"/package.json"))} for d in os.listdir(dir) if d.startswith(sitter)}
+            Language.build_library(sitter_dll, [l["path"] for _,l in languages.items()])
+            def get_language(path):
+                _, ext = os.path.splitext(path)
+                ext = ext[1:]
+                for k,v in languages.items():
+                    infos = v["info"]["tree-sitter"]
+                    for info in infos:
+                        exts = info["file-types"]
+                        if ext in exts: return Language(sitter_dll, k)
+            def get_highlights(name):
+                highlights = []
+                if name in languages:
+                    infos = languages[name]["info"]["tree-sitter"]
+                    for info in infos:
+                        if "highlights" in info:
+                            for highlight in info["highlights"]:
+                                if sitter in highlight:
+                                    highlights.append(dir+sitter+highlight.split(sitter, maxsplit=1)[1])
+                                elif highlight.startswith("queries"):
+                                    highlights.append(dir+sitter+name+"/"+highlight)
+                        else:
+                            highlights = [f"{dir}{sitter}{name}/queries/highlights.scm"]
+                return highlights
+            
+            text = open(temp.name).read()
+            lang = get_language(temp.name)
+            if lang:
+                parser = Parser(); parser.set_language(lang)
+                out_tree = parser.parse(text.encode())
+                for highlight in get_highlights(lang.name):
+                    print(highlight)
+                    print("".rjust(64, "_"))
+                    if os.path.exists(highlight): highlight = open(highlight).read()
+                    else: highlight = None
+                    if highlight:
+                        query = lang.query(highlight)
+                        captures = query.captures(out_tree.root_node)
+                        for capture in captures:
+                            info, key = capture
+                            tid = lambda y: f"{y[0]+1}.{y[1]}"
+                            if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point)]]
+                            else: tags[key].extend([[tid(info.start_point), tid(info.end_point)]])
+            
+        except Exception as e:
+            print(widget.path+" tree-sitter error: "+str(e), file=sys.__stdout__)
+        os.remove(temp.name)
+        if tags: print(tags.keys())
+        re_link = re.compile(r"\b(?P<links>(file://|https?://)[^\s]*)\b", re.S)
 
-def update_tags(text: EventText, start="1.0", end=tk.END):
-    if text.tag_regex:
-        for tag in text.tag_names():
-            if tag in [tk.SEL]: continue
-            text.tag_remove(tag, start, end)
-
-        for match in text.tag_regex.finditer(text.get(start, end)):
+        for match in re_link.finditer(text):
             groups = {k:v for k,v in match.groupdict().items() if v}
             for k in groups:
                 sp_start, sp_end = match.span(k)
-                sp_start = f"{start} + {sp_start}c"
-                sp_end = f"{start} + {sp_end}c"
-                text.tag_add(k, sp_start, sp_end)
+                sp_start = f"1.0 + {sp_start}c"
+                sp_end = f"1.0 + {sp_end}c"
+                if not k in tags: tags[k] = [[sp_start, sp_end]]
+                else: tags[k].extend([[sp_start, sp_end]])
+        
+        for tag in widget.tag_names():
+            if tag in [tk.SEL]: continue
+            if not tag in tags: tags[tag] = []
+        
+        widget.tags = tags
+
+        for tag, spans in tags.items():
+            widget.tag_remove(tag, "1.0", "end - 1c")
+            for span in spans: widget.tag_add(tag, *span)
+
+        # file_lock.release()
+    threading.Thread(target=internal_update, args=[widget]).start()
+
+
+
+# def update_tags(text: EventText, start="1.0", end=tk.END):
+#     if text.tag_regex:
+#         for tag in text.tag_names():
+#             if tag in [tk.SEL]: continue
+#             text.tag_remove(tag, start, end)
 
 
 def editor_modified(widget):
     if widget.read_only: return
-    widget.edits = True
-    widget.lines = int(widget.index('end-1c').split('.')[0])
-    update_title(widget)
-    args = widget.event_args
-    start = end = widget.index(tk.INSERT)
-    line, _ = map(int, start.split("."))
-    lines = 16
-    if args and len(args) > 1:
-        lines = len(args[-1].split("\n"))
-        start = f"{line-lines}.{0}"
-        start += f" - {len(args[-1])}c"
-        start = widget.index(start)
-        start = f"{start.split('.')[0]}.0"
-        end = f"{line+lines}.{0}"
-    else:
-        start = f"{line-lines}.{0}"
-        end = f"{line+lines}.{0}"
+    # widget.edits = True
+    # widget.lines = int(widget.index('end-1c').split('.')[0])
+    # update_title(widget)
+    # args = widget.event_args
+    # start = end = widget.index(tk.INSERT)
+    # line, _ = map(int, start.split("."))
+    # lines = 16
+    # if args and len(args) > 1:
+    #     lines = len(args[-1].split("\n"))
+    #     start = f"{line-lines}.{0}"
+    #     start += f" - {len(args[-1])}c"
+    #     start = widget.index(start)
+    #     start = f"{start.split('.')[0]}.0"
+    #     end = f"{line+lines}.{0}"
+    # else:
+    #     start = f"{line-lines}.{0}"
+    #     end = f"{line+lines}.{0}"
 
-    if lines < 64: update_tags(widget, start, end)
-    if widget.tag_line > line-lines: widget.tag_line = 1
+    # if lines < 64: update_tags(widget, start, end)
+    # if widget.tag_line > line-lines: widget.tag_line = 1
+    update_tags(widget)
 
 
 
@@ -929,8 +1037,7 @@ def watch_file():
             conf_mtime = mtime
             apply_config(editor)
             do_update = True
-        if do_update: editor.tag_line = 1
-        if step_tags(): update_time = 10
+        if do_update: update_tags(editor)
     except Exception as e:
         print(e, file=sys.stderr)
     root.after(update_time, watch_file)
