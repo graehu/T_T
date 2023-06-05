@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser, pickle, shutil, tempfile
+import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser, pickle, shutil
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -44,6 +44,7 @@ class EventText(tk.Text):
     edits = extern_edits = read_only = False
     mtime = tag_line = lines = 0
     cursor_label = None
+    lock = None
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
         self._orig = self._w + "_orig"
@@ -68,6 +69,7 @@ class EventText(tk.Text):
         self.bind("<Control-w>", lambda x: file_close(self.path))
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
         self.bind("<Control-g>", goto_link)
+        self.lock = threading.Lock()
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -164,9 +166,7 @@ stdout_path = "/".join((_sess_dir, "output.log"))
 sys.stdout = open(stdout_path, "w")
 max_threads = 32
 
-if not os.path.exists(conf_path):
-    pass
-json.dump(config, open(conf_path, "w"), indent=4)
+if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
@@ -539,11 +539,8 @@ def update_tags(widget: EventText):
     print("updating tags", file=sys.__stdout__)
     def internal_update(widget: EventText):
         # if file_lock.locked(): return
-        file_lock.acquire()
+        # file_lock.acquire()
         text = widget.get("1.0", "end - 1c")
-        temp = open("/".join([_sess_dir, "highlight"+widget.ext]), "w")
-        temp.write(text)
-        temp.close()
         tags = {}
         try:
             # treesitter_span = re.compile(r'\(([^\(]*) \[(.*?)\] - \[(.*?)\]')
@@ -563,6 +560,7 @@ def update_tags(widget: EventText):
             sitter_dll = "/".join([_grampy_dir, "treesitter.dll"])
             languages = {d.replace(sitter, ""):{"path":dir+d, "info":json.load(open(dir+d+"/package.json"))} for d in os.listdir(dir) if d.startswith(sitter)}
             Language.build_library(sitter_dll, [l["path"] for _,l in languages.items()])
+            
             def get_language(path):
                 _, ext = os.path.splitext(path)
                 ext = ext[1:]
@@ -571,6 +569,7 @@ def update_tags(widget: EventText):
                     for info in infos:
                         exts = info["file-types"]
                         if ext in exts: return Language(sitter_dll, k)
+            
             def get_highlights(name):
                 highlights = []
                 if name in languages:
@@ -585,15 +584,11 @@ def update_tags(widget: EventText):
                         else:
                             highlights = [f"{dir}{sitter}{name}/queries/highlights.scm"]
                 return highlights
-            
-            text = open(temp.name).read()
-            lang = get_language(temp.name)
+            lang = get_language(widget.path)
             if lang:
                 parser = Parser(); parser.set_language(lang)
                 out_tree = parser.parse(text.encode())
                 for highlight in get_highlights(lang.name):
-                    print(highlight)
-                    print("".rjust(64, "_"))
                     if os.path.exists(highlight): highlight = open(highlight).read()
                     else: highlight = None
                     if highlight:
@@ -607,7 +602,7 @@ def update_tags(widget: EventText):
             
         except Exception as e:
             print(widget.path+" tree-sitter error: "+str(e), file=sys.__stdout__)
-        os.remove(temp.name)
+
         if tags: print(tags.keys())
         re_link = re.compile(r"\b(?P<links>(file://|https?://)[^\s]*)\b", re.S)
 
@@ -620,15 +615,15 @@ def update_tags(widget: EventText):
                 if not k in tags: tags[k] = [[sp_start, sp_end]]
                 else: tags[k].extend([[sp_start, sp_end]])
         
+        widget.lock.acquire()
         for tag in widget.tag_names():
             if tag in [tk.SEL]: continue
             if not tag in tags: tags[tag] = []
-        
-        widget.tags = tags
 
         for tag, spans in tags.items():
             widget.tag_remove(tag, "1.0", "end - 1c")
             for span in spans: widget.tag_add(tag, *span)
+        widget.lock.release()
 
         # file_lock.release()
     threading.Thread(target=internal_update, args=[widget]).start()
