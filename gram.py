@@ -44,7 +44,7 @@ class EventText(tk.Text):
     edits = extern_edits = read_only = False
     mtime = tag_line = lines = 0
     cursor_label = None
-    highlights = language = parser = tree = None
+    highlights = language = parser = tree = changes = None
     lock = None
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
@@ -71,6 +71,7 @@ class EventText(tk.Text):
         self.bind("<<TextModified>>", lambda x: editor_modified(self))
         self.bind("<Control-g>", goto_link)
         self.lock = threading.Lock()
+        self.changes = []
 
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
@@ -104,7 +105,9 @@ class EventText(tk.Text):
                 text = self.get("1.0", "end - 1c")
                 if edits:
                     self.tree.edit(*edits)
-                    self.tree = self.parser.parse(text.encode(),self.tree)
+                    new_tree = self.parser.parse(text.encode(), self.tree)
+                    self.changes.extend(self.tree.get_changed_ranges(new_tree))
+                    self.tree = new_tree
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
             # if command in ("yview", "xview"):
@@ -609,12 +612,11 @@ def init_treesitter(widget: EventText):
     
 
 def update_tags(widget: EventText):
-    print("updating tags", file=sys.__stdout__)
     def internal_update(widget: EventText):
-        # if file_lock.locked(): return
-        # file_lock.acquire()
+        print("".ljust(64,"-"), file=sys.__stdout__)
         text = widget.get("1.0", "end - 1c")
         tags = {}
+        start = time.time()
         if widget.language == None: init_treesitter(widget)
         if widget.highlights:
             for highlight in widget.highlights:
@@ -628,8 +630,9 @@ def update_tags(widget: EventText):
                         tid = lambda y: f"{y[0]+1}.{y[1]}"
                         if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point)]]
                         else: tags[key].extend([[tid(info.start_point), tid(info.end_point)]])
+        print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
 
-        if tags: print(tags.keys())
+        start = time.time()
         re_link = re.compile(r"\b(?P<links>(file://|https?://)[^\s]*)\b", re.S)
 
         for match in re_link.finditer(text):
@@ -640,18 +643,23 @@ def update_tags(widget: EventText):
                 sp_end = f"1.0 + {sp_end}c"
                 if not k in tags: tags[k] = [[sp_start, sp_end]]
                 else: tags[k].extend([[sp_start, sp_end]])
+        print(f"regex: {time.time()-start}", file=sys.__stdout__)
         
-        widget.lock.acquire()
+        start = time.time()
         for tag in widget.tag_names():
             if tag in [tk.SEL]: continue
             if not tag in tags: tags[tag] = []
 
+        if widget.changes:
+            print("changes: ", file=sys.__stdout__)
+            for change in widget.changes:
+                print(change, file=sys.__stdout__)
+            
+        
         for tag, spans in tags.items():
-            widget.tag_remove(tag, "1.0", "end - 1c")
+            widget.tag_remove(tag, "1.0", "end-1c")
             for span in spans: widget.tag_add(tag, *span)
-        widget.lock.release()
-
-        # file_lock.release()
+        print(f"tags: {time.time()-start}", file=sys.__stdout__)
     threading.Thread(target=internal_update, args=[widget]).start()
 
 
