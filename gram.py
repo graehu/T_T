@@ -3,39 +3,6 @@ import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading,
 import tkinter as tk
 import tkinter.font as tkfont
 
-# class Generic:
-#     brackets  = r"(?P<brackets>[\(\)\[\]\{\}])"
-#     number    = r"\b(?P<number>((0x|0b|0o|#)[\da-fA-F]+)|((\d*\.)?\d+))\b"
-#     string    = r"(?P<string>\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-#     symbols   = r"(?P<symbols>[-\*$£&|~\?/+%^!:\.=])"
-#     links     = r"\b(?P<links>(file://|https?://)[^\s]*)\b"
-#     regex     = rf"{links}|{string}|{brackets}|{symbols}|{number}"
-
-# class Xml:
-#     tag       = r"(?P<brackets><\/?(?P<xmltag>[\w]+)|>)"
-#     regex     = rf"{Generic.string}|{Generic.symbols}|{Generic.number}|{tag}"
-
-# class Py:
-#     identifier   = r"\b(?P<keyword>False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b"
-#     exception = r"([^.'\"\\#]\b|^)(?P<exception>ArithmeticError|AssertionError|AttributeError|BaseException|BlockingIOError|BrokenPipeError|BufferError|BytesWarning|ChildProcessError|ConnectionAbortedError|ConnectionError|ConnectionRefusedError|ConnectionResetError|DeprecationWarning|EOFError|Ellipsis|EnvironmentError|Exception|FileExistsError|FileNotFoundError|FloatingPointError|FutureWarning|GeneratorExit|IOError|ImportError|ImportWarning|IndentationError|IndexError|InterruptedError|IsADirectoryError|KeyError|KeyboardInterrupt|LookupError|MemoryError|ModuleNotFoundError|NameError|NotADirectoryError|NotImplemented|NotImplementedError|OSError|OverflowError|PendingDeprecationWarning|PermissionError|ProcessLookupError|RecursionError|ReferenceError|ResourceWarning|RuntimeError|RuntimeWarning|StopAsyncIteration|StopIteration|SyntaxError|SyntaxWarning|SystemError|SystemExit|TabError|TimeoutError|TypeError|UnboundLocalError|UnicodeDecodeError|UnicodeEncodeError|UnicodeError|UnicodeTranslateError|UnicodeWarning|UserWarning|ValueError|Warning|WindowsError|ZeroDivisionError)\b"
-#     builtin   = r"([^.'\"\\#]\b|^)(?P<builtin>abs|all|any|ascii|bin|breakpoint|callable|chr|classmethod|compile|complex|copyright|credits|delattr|dir|divmod|enumerate|eval|exec|exit|filter|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|isinstance|issubclass|iter|len|license|locals|map|max|memoryview|min|next|oct|open|ord|pow|print|quit|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|sum|type|vars|zip)\b"
-#     docstring = r"(?P<docstring>(?i:r|u|f|fr|rf|b|br|rb)?'''[^'\\]*((\\.|'(?!''))[^'\\]*)*(''')?|(?i:r|u|f|fr|rf|b|br|rb)?\"\"\"[^\"\\]*((\\.|\"(?!\"\"))[^\"\\]*)*(\"\"\")?)"
-#     string    = r"(?P<string>(?i:r|u|f|fr|rf|b|br|rb)?'[^'\\\n]*(\\.[^'\\\n]*)*'?|(?i:r|u|f|fr|rf|b|br|rb)?\"[^\"\\\n]*(\\.[^\"\\\n]*)*\"?)"
-#     types     = r"\b(?P<types>bool|bytearray|bytes|dict|float|int|list|str|tuple|object)\b"
-#     symbols   = Generic.symbols
-#     brackets  = Generic.brackets
-#     number    = Generic.number
-#     classdef  = r"(?<=\bclass)[ \t]+(?P<classdef>\w+)[ \t]*[:\(]" #recolor of DEFINITION for class definitions
-#     decorator = r"(^[ \t]*(?P<decorator>@[\w\d\.]+))"
-#     instance  = r"\b(?P<instance>super|self|cls)\b"
-#     comment   = r"(?P<comment>#[^\n]*)"
-#     regex     = rf"{keyword}|{builtin}|{exception}|{types}|{symbols}|{brackets}|{comment}|{docstring}|{string}|{instance}|{decorator}|{number}|{classdef}"
-
-# re_py_tags = re.compile(Py.regex, re.S)
-# re_xml_tags = re.compile(Xml.regex, re.S)
-# re_gen_tags = re.compile(Generic.regex, re.S)
-
-
 class EventText(tk.Text):
     event_args = None
     text_config = {}
@@ -72,12 +39,15 @@ class EventText(tk.Text):
         self.bind("<Control-g>", goto_link)
         self.lock = threading.Lock()
         self.changes = []
-
+    class Range:
+        start_byte=0
+        end_byte=0
     def _proxy(self, command, *args):
         cmd = (self._orig, command) + args
         result = ""
         try:
             edits = []
+            fallback = EventText.Range()
             if command in ("insert", "delete", "replace"):
                 if self.tree != None:
                     if command == "insert":
@@ -89,7 +59,9 @@ class EventText(tk.Text):
                         if len(args) > 1: amount = self.count("1.0", args[1])[0] - start
                         else: amount = 1
                         edits = [start, start+amount, start, (start, start), (start, start+amount), (start, start)]
-                        
+                    if command in ["insert", "delete"]:
+                        fallback.start_byte = self.count("1.0", f"{args[0]} linestart")[0]
+                        fallback.end_byte = self.count("1.0", f"{args[0]} lineend")[0]
             result = self.tk.call(cmd)
             if command == "configure" and self.cursor_label: self.cursor_label.destroy(); self.cursor_label = None
             if self.read_only and " ".join((command, *args)).startswith("mark set insert"):
@@ -106,7 +78,9 @@ class EventText(tk.Text):
                 if edits:
                     self.tree.edit(*edits)
                     new_tree = self.parser.parse(text.encode(), self.tree)
-                    self.changes.extend(self.tree.get_changed_ranges(new_tree))
+                    changes = self.tree.get_changed_ranges(new_tree)
+                    self.changes.append(fallback) # hack: this will cause a lot more work than is needed.
+                    self.changes.extend(changes)
                     self.tree = new_tree
                 self.event_args = args
                 self.event_generate("<<TextModified>>")
@@ -137,6 +111,7 @@ config = {
     },
     "tree-sitter": {"search_path": "~/github/"},
     "tags": {
+        "links": { "foreground": "skyblue", "underline": True },
         "number": { "foreground": "white" },
         "property": { "foreground": "teal" },
         "constant": { "foreground": "yellow" },
@@ -166,7 +141,6 @@ files = {}
 commands = {}
 op_args = {}
 glob_map = {}
-tag_line_stride = 128
 tab_spaces = 4
 last_complist = ""
 current_file = ""
@@ -180,11 +154,12 @@ work_lock = threading.Lock()
 gui_lock = threading.Lock()
 print_lock = threading.Lock()
 file_lock = threading.Lock()
+frame_time = 0
 _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
 stdout_path = "/".join((_sess_dir, "output.log"))
 sys.stdout = open(stdout_path, "w")
-max_threads = 32
+max_threads = 128
 
 if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
@@ -207,15 +182,6 @@ def share_work(worker, in_args, log_file=None):
     while any([t.is_alive() for t in threads]): time.sleep(0.01)
     safe_print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
     work_lock.release()
-
-# def step_tags() -> bool:
-#     if editor.tag_line < editor.lines:
-#         start, end = editor.tag_line, editor.tag_line+128
-#         update_tags(editor, f"{start}.0", f"{end}.0")
-#         editor.tag_line = end
-#         return True
-#     return False
-
 
 def spawn(path):
     flags = 0
@@ -314,9 +280,6 @@ def file_create(path, name, ext, mtime, read_only, lines):
         widget.path = path
         widget.name = name
         widget.ext = ext
-        # if ext in [".py", ".pyw"]: widget.tag_regex = re_py_tags
-        # elif ext in [".xml", ".meta"]: widget.tag_regex = re_xml_tags
-        # else: widget.tag_regex = re_gen_tags
         widget.mtime = mtime
         widget.insert(tk.END, "".join(lines))
         if read_only: widget.mark_set(tk.INSERT, tk.END)
@@ -383,15 +346,15 @@ def save_file(path):
         with open(path, "w") as output_file:
             text = editor.get(1.0, 'end-1c')
             output_file.write(text)
-            key = file_to_key(path)
-            if key in files: files[key]["lines"] = text.splitlines()
-            if path == current_file:
-                editor.edits = False
-                editor.extern_edits = False
-                editor.mtime = os.path.getmtime(path)
-                update_title(editor)
-                editor.edit_modified(0)
-            if path == conf_path: apply_config(editor)
+        key = file_to_key(path)
+        if key in files: files[key]["lines"] = text.splitlines()
+        if path == current_file:
+            editor.edits = False
+            editor.extern_edits = False
+            editor.mtime = os.path.getmtime(path)
+            update_title(editor)
+            editor.edit_modified(0)
+        if path == conf_path: apply_config(editor)
 
 
 def file_open(path, new_inst=False, read_only=False, background=False, tindex=None):
@@ -417,9 +380,6 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
         editor.pack(before=palette, expand=True, fill="both")
         update_title(editor)
         update_tags(editor)
-        # editor.tag_line = 1
-
-        # step_tags()
         editor.lower()
         editor.focus_set()
     elif os.path.exists(path):
@@ -557,17 +517,6 @@ def find_all(text):
 
 def init_treesitter(widget: EventText):
     try:
-        # treesitter_span = re.compile(r'\(([^\(]*) \[(.*?)\] - \[(.*?)\]')
-        # output = subprocess.Popen(["tree-sitter","parse",temp.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # output = output.stdout.read().decode()
-        # if output: print(output)
-        # found = treesitter_span.findall(output)
-        # tid = lambda x: ".".join((lambda y: [str(int(y[0])+1), y[1]])(x.split(", ")))
-        # if found:
-        #     for key,start,end in found:
-        #         print(key)
-        #         if not key in tags: tags[key] = [[tid(start), tid(end)]]
-        #         else: tags[key].extend([[tid(start), tid(end)]])
         from tree_sitter import Language, Parser
         text = widget.get("1.0", "end - 1c")
         dir = os.path.expanduser(config["tree-sitter"]["search_path"])
@@ -606,14 +555,15 @@ def init_treesitter(widget: EventText):
             parser = Parser(); parser.set_language(lang)
             widget.parser = parser
             widget.tree = parser.parse(text.encode())
-
+            
     except Exception as e:
         print(widget.path+" tree-sitter error: "+str(e), file=sys.__stdout__)
     
 
 def update_tags(widget: EventText):
     def internal_update(widget: EventText):
-        print("".ljust(64,"-"), file=sys.__stdout__)
+        debug_it = False
+        if debug_it: print(widget.name.center(64,"-"), file=sys.__stdout__)
         text = widget.get("1.0", "end - 1c")
         tags = {}
         start = time.time()
@@ -628,9 +578,9 @@ def update_tags(widget: EventText):
                     for capture in captures:
                         info, key = capture
                         tid = lambda y: f"{y[0]+1}.{y[1]}"
-                        if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point)]]
-                        else: tags[key].extend([[tid(info.start_point), tid(info.end_point)]])
-        print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
+                        if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
+                        else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
+        if debug_it: print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
 
         start = time.time()
         re_link = re.compile(r"\b(?P<links>(file://|https?://)[^\s]*)\b", re.S)
@@ -639,60 +589,49 @@ def update_tags(widget: EventText):
             groups = {k:v for k,v in match.groupdict().items() if v}
             for k in groups:
                 sp_start, sp_end = match.span(k)
-                sp_start = f"1.0 + {sp_start}c"
-                sp_end = f"1.0 + {sp_end}c"
-                if not k in tags: tags[k] = [[sp_start, sp_end]]
-                else: tags[k].extend([[sp_start, sp_end]])
-        print(f"regex: {time.time()-start}", file=sys.__stdout__)
+                ti_start = f"1.0 + {sp_start}c"
+                ti_end = f"1.0 + {sp_end}c"
+                if not k in tags: tags[k] = [[ti_start, ti_end, sp_start, sp_end]]
+                else: tags[k].extend([[ti_start, ti_end, sp_start, sp_end]])
+        if debug_it: print(f"regex: {time.time()-start}", file=sys.__stdout__)
         
         start = time.time()
         for tag in widget.tag_names():
             if tag in [tk.SEL]: continue
             if not tag in tags: tags[tag] = []
-
-        if widget.changes:
-            print("changes: ", file=sys.__stdout__)
-            for change in widget.changes:
-                print(change, file=sys.__stdout__)
-            
         
-        for tag, spans in tags.items():
-            widget.tag_remove(tag, "1.0", "end-1c")
-            for span in spans: widget.tag_add(tag, *span)
-        print(f"tags: {time.time()-start}", file=sys.__stdout__)
-    threading.Thread(target=internal_update, args=[widget]).start()
+        if widget.changes:
+            changes = widget.changes
+            if debug_it:
+                print("changes: ", file=sys.__stdout__)
+                for change in changes: print(widget.get(f"1.0 +{change.start_byte}c", f"1.0 + {change.end_byte}c"), file=sys.__stdout__)
+        
+            for tag, spans in tags.items():
+                for change in changes:
+                    widget.tag_remove(tag, f"1.0 + {change.start_byte}c", f"1.0 + {change.end_byte}c")
+                for span in spans:
+                    for change in changes:
+                        if span[2] >= change.start_byte-8 and span[3] <= change.end_byte+8:
+                            widget.tag_add(tag, *span[:2]); break
+            widget.changes = widget.changes[len(changes):]
+        else:
+            if debug_it: print("full parse: ", file=sys.__stdout__)
+            for tag, spans in tags.items():
+                widget.tag_remove(tag, "1.0", "end-1c")
+                for span in spans:
+                    widget.tag_add(tag, *span[:2])
+        if debug_it: print(f"tags: {time.time()-start}", file=sys.__stdout__)
+        if debug_it: print("done", file=sys.__stdout__)
+        if debug_it: print("".ljust(64,"-"), file=sys.__stdout__)
 
-
-
-# def update_tags(text: EventText, start="1.0", end=tk.END):
-#     if text.tag_regex:
-#         for tag in text.tag_names():
-#             if tag in [tk.SEL]: continue
-#             text.tag_remove(tag, start, end)
-
+    if not [x for x in threading.enumerate() if x.name == "update_tags"]:
+        if widget.changes and (time.time()-frame_time) < 0.05: internal_update(widget) # is it fast enough..
+        else: threading.Thread(target=internal_update, args=[widget], name="update_tags").start()
 
 def editor_modified(widget):
     if widget.read_only: return
-    # widget.edits = True
-    # widget.lines = int(widget.index('end-1c').split('.')[0])
-    # update_title(widget)
-    # args = widget.event_args
-    # start = end = widget.index(tk.INSERT)
-    # line, _ = map(int, start.split("."))
-    # lines = 16
-    # if args and len(args) > 1:
-    #     lines = len(args[-1].split("\n"))
-    #     start = f"{line-lines}.{0}"
-    #     start += f" - {len(args[-1])}c"
-    #     start = widget.index(start)
-    #     start = f"{start.split('.')[0]}.0"
-    #     end = f"{line+lines}.{0}"
-    # else:
-    #     start = f"{line-lines}.{0}"
-    #     end = f"{line+lines}.{0}"
-
-    # if lines < 64: update_tags(widget, start, end)
-    # if widget.tag_line > line-lines: widget.tag_line = 1
+    widget.edits = True
+    update_title(widget)
     update_tags(widget)
 
 
@@ -1032,6 +971,8 @@ else:
 
 def watch_file():
     global conf_mtime
+    global frame_time
+    frame_time = time.time()
     do_update = False
     update_time = 1
     try:
