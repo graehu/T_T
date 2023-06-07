@@ -79,7 +79,7 @@ class EventText(tk.Text):
                     self.tree.edit(*edits)
                     new_tree = self.parser.parse(text.encode(), self.tree)
                     changes = self.tree.get_changed_ranges(new_tree)
-                    self.changes.append(fallback) # hack: this will cause a lot more work than is needed.
+                    if not changes: changes.append(fallback)
                     self.changes.extend(changes)
                     self.tree = new_tree
                 self.event_args = args
@@ -110,30 +110,34 @@ config = {
         "highlightbackground": "gray20"
     },
     "tree-sitter": {"search_path": "~/github/"},
+    "regexs": [r"(?P<brackets>[\[\]\{\}\(\)])"],
     "tags": {
         "links": { "foreground": "skyblue", "underline": True },
-        "number": { "foreground": "white" },
-        "property": { "foreground": "teal" },
-        "constant": { "foreground": "yellow" },
+        "brackets": { "foreground": "grey90"},
+        "number": { "foreground": "grey90" },
+        "property": { "foreground": "skyblue" },
+        "constant": { "foreground": "skyblue" },
         "attribute": { "foreground": "orange" },
-        "punctuation.bracket": { "foreground": "white" },
+        "punctuation.bracket": { "foreground": "grey90" },
         "comment": { "foreground": "green" },
-        "function.builtin": { "foreground": "teal" },
-        "constant.builtin": { "foreground": "cyan" },
-        "punctuation.delimiter": { "foreground": "white" },
+        "function.builtin": { "foreground": "lightgoldenrod" },
+        "constant.builtin": { "foreground": "skyblue" },
+        "punctuation.delimiter": { "foreground": "grey90" },
+        "punctuation.special": { "foreground": "grey90" },
+        "embedded": { "foreground": "grey90" },
         "string.special": { "foreground": "limegreen" },
         "tag": { "foreground": "blue" },
         "type.builtin": { "foreground": "skyblue" },
         "embedded": { "foreground": "grey" },
         "variable.builtin": { "foreground": "limegreen" },
-        "function": { "foreground": "orange" },
-        "type": { "foreground": "orange" },
-        "variable.parameter": { "foreground": "white" },
+        "function": { "foreground": "lightgoldenrod" },
+        "type": { "foreground": "skyblue" },
+        "variable.parameter": { "foreground": "grey90" },
         "string": { "foreground": "lightgreen" },
         "module": { "foreground": "purple" },
-        "operator": { "foreground": "white" },
-        "keyword": { "foreground": "magenta" },
-        "constructor": { "foreground": "green" }
+        "operator": { "foreground": "grey90" },
+        "keyword": { "foreground": "hotpink1" },
+        "constructor": { "foreground": "skyblue" }
     }
 }
 
@@ -161,7 +165,8 @@ stdout_path = "/".join((_sess_dir, "output.log"))
 sys.stdout = open(stdout_path, "w")
 max_threads = 128
 
-if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
+if not os.path.exists(conf_path): pass
+json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
@@ -213,6 +218,9 @@ def apply_config(widget):
         del text_config["selectforeground"] ; del text_config["selectbackground"]
         for k in widget.tag_names(): widget.tag_delete(k)
         for k in tags_config: widget.tag_configure(k, tags_config[k])
+        if not "regexs" in config: config["regexs"] = []
+        config["regexs"].append(r"\b(?P<links>(file://|https?://)[^\s]*)\b")
+        config["regexs"] = [re.compile(r, re.S) for r in config["regexs"]]
     except Exception as e:
         print(e, file=sys.stderr)
 
@@ -566,7 +574,7 @@ def update_tags(widget: EventText):
         if debug_it: print(widget.name.center(64,"-"), file=sys.__stdout__)
         text = widget.get("1.0", "end - 1c")
         tags = {}
-        start = time.time()
+        if debug_it: start = time.time()
         if widget.language == None: init_treesitter(widget)
         if widget.highlights:
             for highlight in widget.highlights:
@@ -582,20 +590,22 @@ def update_tags(widget: EventText):
                         else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
         if debug_it: print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
 
-        start = time.time()
-        re_link = re.compile(r"\b(?P<links>(file://|https?://)[^\s]*)\b", re.S)
+        if debug_it: start = time.time()
 
-        for match in re_link.finditer(text):
-            groups = {k:v for k,v in match.groupdict().items() if v}
-            for k in groups:
-                sp_start, sp_end = match.span(k)
-                ti_start = f"1.0 + {sp_start}c"
-                ti_end = f"1.0 + {sp_end}c"
-                if not k in tags: tags[k] = [[ti_start, ti_end, sp_start, sp_end]]
-                else: tags[k].extend([[ti_start, ti_end, sp_start, sp_end]])
+        for regex in config["regexs"]:
+            changes = [[c.start_byte-1, c.end_byte+1] for c in widget.changes] if widget.changes else [[0, sys.maxsize]]
+            for change in changes:
+                for match in regex.finditer(text, *change):
+                    groups = {k:v for k,v in match.groupdict().items() if v}
+                    for k in groups:
+                        sp_start, sp_end = match.span(k)
+                        ti_start = f"1.0 + {sp_start}c"
+                        ti_end = f"1.0 + {sp_end}c"
+                        if not k in tags: tags[k] = [[ti_start, ti_end, sp_start, sp_end]]
+                        else: tags[k].extend([[ti_start, ti_end, sp_start, sp_end]])
         if debug_it: print(f"regex: {time.time()-start}", file=sys.__stdout__)
         
-        start = time.time()
+        if debug_it: start = time.time()
         for tag in widget.tag_names():
             if tag in [tk.SEL]: continue
             if not tag in tags: tags[tag] = []
@@ -632,7 +642,7 @@ def editor_modified(widget):
     if widget.read_only: return
     widget.edits = True
     update_title(widget)
-    update_tags(widget)
+    # update_tags(widget)
 
 
 
@@ -972,12 +982,12 @@ else:
 def watch_file():
     global conf_mtime
     global frame_time
+    if editor.changes: update_tags(editor)
     frame_time = time.time()
     do_update = False
     update_time = 1
     try:
         sys.stdout.flush()
-        # print(time.time(), file=sys.__stdout__)
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if os.path.isfile(editor.path):
