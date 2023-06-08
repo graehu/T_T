@@ -6,7 +6,7 @@ import tkinter.font as tkfont
 class EventText(tk.Text):
     event_args = None
     text_config = {}
-    tags = {}
+    tag_queue = None
     path = name = ext = ""
     edits = extern_edits = read_only = False
     mtime = tag_line = lines = 0
@@ -39,6 +39,7 @@ class EventText(tk.Text):
         self.bind("<Control-g>", goto_link)
         self.lock = threading.Lock()
         self.changes = []
+        self.tag_queue = []
     class Range:
         start_byte=0
         end_byte=0
@@ -579,8 +580,11 @@ def update_tags(widget: EventText):
                 if os.path.exists(highlight): highlight = open(highlight).read()
                 else: highlight = None
                 if highlight:
+                    if debug_it: q_start = time.time()
                     query = widget.language.query(highlight)
                     captures = query.captures(widget.tree.root_node)
+                    if debug_it: print(f"treesitter_query: {time.time()-q_start}", file=sys.__stdout__)
+                    if debug_it: q_start = time.time()
                     tid = lambda y: f"{y[0]+1}.{y[1]}"
                     changes = widget.changes
                     for info, key in captures:
@@ -593,6 +597,7 @@ def update_tags(widget: EventText):
                         else:
                             if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
                             else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
+                    if debug_it: print(f"treesitter_spans: {time.time()-q_start}", file=sys.__stdout__)
         if debug_it: print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
 
         if debug_it: start = time.time()
@@ -629,17 +634,20 @@ def update_tags(widget: EventText):
             widget.changes = widget.changes[len(changes):]
         else:
             if debug_it: print("full parse: ", file=sys.__stdout__)
+            widget.tag_queue = []
             for tag, spans in tags.items():
-                widget.tag_remove(tag, "1.0", "end-1c")
-                for span in spans:
-                    widget.tag_add(tag, *span[:2])
+                widget.tag_queue.append(lambda x=widget, y=tag: x.tag_remove(y, "1.0", "end-1c"))
+                for span in spans: widget.tag_queue.append(lambda x=widget,y=tag, z=span[:2]: x.tag_add(y, *z))
+                    
         if debug_it: print(f"tags: {time.time()-start}", file=sys.__stdout__)
         if debug_it: print("done", file=sys.__stdout__)
         if debug_it: print("".ljust(64,"-"), file=sys.__stdout__)
-
-    if not [x for x in threading.enumerate() if x.name == "update_tags"]:
-        if widget.changes and (time.time()-frame_time) < 0.05: internal_update(widget) # is it fast enough..
-        else: threading.Thread(target=internal_update, args=[widget], name="update_tags").start()
+    
+    internal_update(widget)
+    
+    # if not [x for x in threading.enumerate() if x.name == "update_tags"]:
+        # if widget.changes and (time.time()-frame_time) < 0.05: internal_update(widget) # is it fast enough..
+        # else: threading.Thread(target=internal_update, args=[widget], name="update_tags").start()
 
 
 def editor_modified(widget):
@@ -993,6 +1001,7 @@ def watch_file():
         sys.stdout.flush()
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
+        while editor.tag_queue and (time.time()-frame_time) < 0.01: editor.tag_queue.pop(0)()
         if os.path.isfile(editor.path):
             mtime = os.path.getmtime(editor.path)
             if mtime != editor.mtime:
