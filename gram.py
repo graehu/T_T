@@ -163,16 +163,14 @@ _sess_dir = "/".join((_grampy_dir, str(start_time)))
 os.makedirs(_sess_dir)
 stdout_path = "/".join((_sess_dir, "output.log"))
 sys.stdout = open(stdout_path, "w")
-max_threads = 128
 
-if not os.path.exists(conf_path): pass
-json.dump(config, open(conf_path, "w"), indent=4)
+if not os.path.exists(conf_path): json.dump(config, open(conf_path, "w"), indent=4)
 conf_mtime = os.path.getmtime(conf_path)
 br_pat = re.compile(r"}|{|\.|:|/|\"|\\|\+|\-| |\(|\)|\[|\]")
 
 def is_main_thread(): return threading.current_thread() is threading.main_thread()
 
-def share_work(worker, in_args, log_file=None):
+def share_work(worker, in_args, log_file=None, max_threads=32):
     work_lock.acquire()
     threads = []
     available_threads = max_threads-(len(threading.enumerate())-1)
@@ -519,7 +517,7 @@ def find_all(text):
                 for l in search_lines(v["editor"], text):
                     line,row,out = *l[0].split("."), l[1]
                     safe_print(f"file://{k}:{line}:{row}: {out}", file=log_file)
-    def do_work(): share_work(find_worker, args, log_file=log_file)
+    def do_work(): share_work(find_worker, args, log_file=log_file, max_threads=128)
     threading.Thread(target=do_work).start()
 
 
@@ -570,7 +568,7 @@ def init_treesitter(widget: EventText):
 
 def update_tags(widget: EventText):
     def internal_update(widget: EventText):
-        debug_it = False
+        debug_it = True
         if debug_it: print(widget.name.center(64,"-"), file=sys.__stdout__)
         text = widget.get("1.0", "end - 1c")
         tags = {}
@@ -583,11 +581,18 @@ def update_tags(widget: EventText):
                 if highlight:
                     query = widget.language.query(highlight)
                     captures = query.captures(widget.tree.root_node)
-                    for capture in captures:
-                        info, key = capture
-                        tid = lambda y: f"{y[0]+1}.{y[1]}"
-                        if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
-                        else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
+                    tid = lambda y: f"{y[0]+1}.{y[1]}"
+                    changes = widget.changes
+                    for info, key in captures:
+                        if changes:
+                            for change in changes:
+                                if info.start_byte >= change.start_byte-8 and info.end_byte <= change.end_byte+8:
+                                    if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
+                                    else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
+                                    break
+                        else:
+                            if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
+                            else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
         if debug_it: print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
 
         if debug_it: start = time.time()
@@ -620,9 +625,7 @@ def update_tags(widget: EventText):
                 for change in changes:
                     widget.tag_remove(tag, f"1.0 + {change.start_byte}c", f"1.0 + {change.end_byte}c")
                 for span in spans:
-                    for change in changes:
-                        if span[2] >= change.start_byte-8 and span[3] <= change.end_byte+8:
-                            widget.tag_add(tag, *span[:2]); break
+                    widget.tag_add(tag, *span[:2])
             widget.changes = widget.changes[len(changes):]
         else:
             if debug_it: print("full parse: ", file=sys.__stdout__)
@@ -638,11 +641,11 @@ def update_tags(widget: EventText):
         if widget.changes and (time.time()-frame_time) < 0.05: internal_update(widget) # is it fast enough..
         else: threading.Thread(target=internal_update, args=[widget], name="update_tags").start()
 
+
 def editor_modified(widget):
     if widget.read_only: return
     widget.edits = True
     update_title(widget)
-    # update_tags(widget)
 
 
 
@@ -854,7 +857,7 @@ def load_cache(cache_name):
         in_files = list(in_files.items())
         def cache_worker(files):
             for k,v in files: file_get(k, cache=v)
-        share_work(cache_worker, in_files)
+        share_work(cache_worker, in_files, max_threads=32)
     threading.Thread(target=file_cache, args=([pkl_files]), name="load_cache").start()
 
 
