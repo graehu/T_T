@@ -2,6 +2,8 @@
 import re, os, sys, ast, glob, json, time, zlib, fnmatch, subprocess, threading, webbrowser, pickle, shutil
 import tkinter as tk
 import tkinter.font as tkfont
+try: import tree_sitter
+except: pass
 
 class EventText(tk.Text):
     event_args = None
@@ -11,7 +13,7 @@ class EventText(tk.Text):
     edits = extern_edits = read_only = False
     mtime = tag_line = lines = 0
     cursor_label = None
-    highlights = language = parser = tree = changes = None
+    text = highlights = language = parser = tree = changes = None
     lock = None
     def __init__(self, *args, **kwargs):
         tk.Text.__init__(self, *args, **kwargs)
@@ -61,8 +63,8 @@ class EventText(tk.Text):
                         else: amount = 1
                         edits = [start, start+amount, start, (start, start), (start, start+amount), (start, start)]
                     if command in ["insert", "delete"]:
-                        fallback.start_byte = self.count("1.0", f"{args[0]} linestart")[0]
-                        fallback.end_byte = self.count("1.0", f"{args[0]} lineend")[0]
+                        fallback.start_byte = self.count("1.0", f"{args[0]}")[0]
+                        fallback.end_byte = fallback.start_byte
             result = self.tk.call(cmd)
             if command == "configure" and self.cursor_label: self.cursor_label.destroy(); self.cursor_label = None
             if self.read_only and " ".join((command, *args)).startswith("mark set insert"):
@@ -75,10 +77,10 @@ class EventText(tk.Text):
 
             if debug_output: print(cmd)
             if command in ("insert", "delete", "replace"):
-                text = self.get("1.0", "end - 1c")
+                self.text = self.get("1.0", "end - 1c")
                 if edits:
                     self.tree.edit(*edits)
-                    new_tree = self.parser.parse(text.encode(), self.tree)
+                    new_tree = self.parser.parse(self.text.encode(), self.tree)
                     changes = self.tree.get_changed_ranges(new_tree)
                     if not changes: changes.append(fallback)
                     self.changes.extend(changes)
@@ -524,13 +526,12 @@ def find_all(text):
 
 def init_treesitter(widget: EventText):
     try:
-        from tree_sitter import Language, Parser
-        text = widget.get("1.0", "end - 1c")
+        text = widget.text
         dir = os.path.expanduser(config["tree-sitter"]["search_path"])
         sitter = "tree-sitter-"
         sitter_dll = "/".join([_grampy_dir, "treesitter.dll"])
         languages = {d.replace(sitter, ""):{"path":dir+d, "info":json.load(open(dir+d+"/package.json"))} for d in os.listdir(dir) if d.startswith(sitter)}
-        Language.build_library(sitter_dll, [l["path"] for _,l in languages.items()])
+        tree_sitter.Language.build_library(sitter_dll, [l["path"] for _,l in languages.items()])
         
         def get_language(path):
             _, ext = os.path.splitext(path)
@@ -539,7 +540,7 @@ def init_treesitter(widget: EventText):
                 infos = v["info"]["tree-sitter"]
                 for info in infos:
                     exts = info["file-types"]
-                    if ext in exts: return Language(sitter_dll, k)
+                    if ext in exts: return tree_sitter.Language(sitter_dll, k)
         
         def get_highlights(name):
             highlights = []
@@ -559,42 +560,52 @@ def init_treesitter(widget: EventText):
         if lang:
             widget.language = lang
             widget.highlights = get_highlights(lang.name)
-            parser = Parser(); parser.set_language(lang)
+            parser = tree_sitter.Parser(); parser.set_language(lang)
             widget.parser = parser
             widget.tree = parser.parse(text.encode())
             
     except Exception as e:
         print(widget.path+" tree-sitter error: "+str(e), file=sys.__stdout__)
-    
+
 
 def update_tags(widget: EventText):
     def internal_update(widget: EventText):
-        debug_it = True
+        debug_it = False
         if debug_it: print(widget.name.center(64,"-"), file=sys.__stdout__)
-        text = widget.get("1.0", "end - 1c")
+        text = widget.text
         tags = {}
         if debug_it: start = time.time()
         if widget.language == None: init_treesitter(widget)
         if widget.highlights:
+            root = widget.tree.root_node
+            nodes = []
+            if widget.changes:
+                for change in widget.changes:
+                    for child in root.children:
+                        if change.start_byte <= child.start_byte and change.end_byte >= child.end_byte or \
+                            change.start_byte >= child.start_byte and change.end_byte <= child.end_byte:
+                            nodes.append(child)
+                            if debug_it: print(f"node: {child}", file=sys.__stdout__)
+            else:
+                nodes.append(root)
+            
             for highlight in widget.highlights:
                 if os.path.exists(highlight): highlight = open(highlight).read()
                 else: highlight = None
                 if highlight:
-                    if debug_it: q_start = time.time()
-                    query = widget.language.query(highlight)
-                    captures = query.captures(widget.tree.root_node)
-                    if debug_it: print(f"treesitter_query: {time.time()-q_start}", file=sys.__stdout__)
-                    if debug_it: q_start = time.time()
-                    tid = lambda y: f"{y[0]+1}.{y[1]}"
-                    changes = widget.changes
-                    for info, key in captures:
-                        if changes:
-                            for change in changes:
-                                if info.start_byte >= change.start_byte-8 and info.end_byte <= change.end_byte+8:
-                                    if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
-                                    else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
-                                    break
+                    for node in nodes:
+                        if debug_it: q_start = time.time()
+                        query = widget.language.query(highlight)
+                        for change in widget.changes:
+                            captures = query.captures(node, start_byte=change.start_byte, end_byte=change.end_byte)
                         else:
+                            captures = query.captures(node)
+                        if debug_it: print(f"treesitter_query: {time.time()-q_start}", file=sys.__stdout__)
+                        if debug_it: q_start = time.time()
+                        tid = lambda y: f"{y[0]+1}.{y[1]}"
+                        
+                        for info, key in captures:
+                            if not key in config["tags"]: continue
                             if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
                             else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
                     if debug_it: print(f"treesitter_spans: {time.time()-q_start}", file=sys.__stdout__)
@@ -625,19 +636,23 @@ def update_tags(widget: EventText):
             if debug_it:
                 print("changes: ", file=sys.__stdout__)
                 for change in changes: print(widget.get(f"1.0 +{change.start_byte}c", f"1.0 + {change.end_byte}c"), file=sys.__stdout__)
-        
+                print("tags: ", file=sys.__stdout__)
+                for k,v in tags.items(): print(f"\t{k}: {len(v)}", file=sys.__stdout__)
+            widget.tag_queue = []
             for tag, spans in tags.items():
                 for change in changes:
-                    widget.tag_remove(tag, f"1.0 + {change.start_byte}c", f"1.0 + {change.end_byte}c")
-                for span in spans:
-                    widget.tag_add(tag, *span[:2])
+                    widget.tag_queue.append(lambda x=widget, y=tag, z=change: x.tag_remove(y, f"1.0 + {z.start_byte}c", f"1.0 + {z.end_byte}c"))
+                for span in spans: widget.tag_queue.append(lambda x=widget,y=tag,z=span[:2]: x.tag_add(y, *z))
             widget.changes = widget.changes[len(changes):]
         else:
-            if debug_it: print("full parse: ", file=sys.__stdout__)
+            if debug_it:
+                print("full parse: ", file=sys.__stdout__)
+                print("tags: ", file=sys.__stdout__)
+                for k,v in tags.items(): print(f"\t{k}: {len(v)}", file=sys.__stdout__)
             widget.tag_queue = []
             for tag, spans in tags.items():
                 widget.tag_queue.append(lambda x=widget, y=tag: x.tag_remove(y, "1.0", "end-1c"))
-                for span in spans: widget.tag_queue.append(lambda x=widget,y=tag, z=span[:2]: x.tag_add(y, *z))
+                for span in spans: widget.tag_queue.append(lambda x=widget,y=tag,z=span[:2]: x.tag_add(y, *z))
                     
         if debug_it: print(f"tags: {time.time()-start}", file=sys.__stdout__)
         if debug_it: print("done", file=sys.__stdout__)
@@ -993,7 +1008,6 @@ else:
 def watch_file():
     global conf_mtime
     global frame_time
-    if editor.changes: update_tags(editor)
     frame_time = time.time()
     do_update = False
     update_time = 1
@@ -1001,7 +1015,10 @@ def watch_file():
         sys.stdout.flush()
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
-        while editor.tag_queue and (time.time()-frame_time) < 0.01: editor.tag_queue.pop(0)()
+        if editor.changes: update_tags(editor)
+        else:
+            while editor.tag_queue and (time.time()-frame_time) < 0.001: editor.tag_queue.pop(0)()
+
         if os.path.isfile(editor.path):
             mtime = os.path.getmtime(editor.path)
             if mtime != editor.mtime:
