@@ -573,21 +573,23 @@ def update_tags(widget: EventText):
         debug_it = False
         if debug_it: print(widget.name.center(64,"-"), file=sys.__stdout__)
         text = widget.text
+        tag_names = widget.tag_names()
+        changes = widget.changes
         tags = {}
         if debug_it: start = time.time()
         if widget.language == None: init_treesitter(widget)
         if widget.highlights:
-            root = widget.tree.root_node
             nodes = []
-            if widget.changes:
-                for change in widget.changes:
-                    for child in root.children:
+            tree_root = widget.tree.root_node
+            if changes:
+                for change in changes:
+                    for child in tree_root.children:
                         if change.start_byte <= child.start_byte and change.end_byte >= child.end_byte or \
                             change.start_byte >= child.start_byte and change.end_byte <= child.end_byte:
                             nodes.append(child)
                             if debug_it: print(f"node: {child}", file=sys.__stdout__)
             else:
-                nodes.append(root)
+                nodes.append(tree_root)
             
             for highlight in widget.highlights:
                 if os.path.exists(highlight): highlight = open(highlight).read()
@@ -596,7 +598,7 @@ def update_tags(widget: EventText):
                     for node in nodes:
                         if debug_it: q_start = time.time()
                         query = widget.language.query(highlight)
-                        for change in widget.changes:
+                        for change in changes:
                             captures = query.captures(node, start_byte=change.start_byte, end_byte=change.end_byte)
                         else:
                             captures = query.captures(node)
@@ -608,14 +610,14 @@ def update_tags(widget: EventText):
                             if not key in config["tags"]: continue
                             if not key in tags: tags[key] = [[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]]
                             else: tags[key].extend([[tid(info.start_point), tid(info.end_point), info.start_byte, info.end_byte]])
-                    if debug_it: print(f"treesitter_spans: {time.time()-q_start}", file=sys.__stdout__)
+                        if debug_it: print(f"treesitter_spans: {time.time()-q_start}", file=sys.__stdout__)
         if debug_it: print(f"treesitter: {time.time()-start}", file=sys.__stdout__)
 
         if debug_it: start = time.time()
 
         for regex in config["regexs"]:
-            changes = [[c.start_byte-1, c.end_byte+1] for c in widget.changes] if widget.changes else [[0, sys.maxsize]]
-            for change in changes:
+            byte_changes = [[c.start_byte-1, c.end_byte+1] for c in changes] if changes else [[0, sys.maxsize]]
+            for change in byte_changes:
                 for match in regex.finditer(text, *change):
                     groups = {k:v for k,v in match.groupdict().items() if v}
                     for k in groups:
@@ -627,22 +629,22 @@ def update_tags(widget: EventText):
         if debug_it: print(f"regex: {time.time()-start}", file=sys.__stdout__)
         
         if debug_it: start = time.time()
-        for tag in widget.tag_names():
+        for tag in tag_names:
             if tag in [tk.SEL]: continue
             if not tag in tags: tags[tag] = []
         
-        if widget.changes:
-            changes = widget.changes
+        if changes:
             if debug_it:
                 print("changes: ", file=sys.__stdout__)
                 for change in changes: print(widget.get(f"1.0 +{change.start_byte}c", f"1.0 + {change.end_byte}c"), file=sys.__stdout__)
                 print("tags: ", file=sys.__stdout__)
                 for k,v in tags.items(): print(f"\t{k}: {len(v)}", file=sys.__stdout__)
-            widget.tag_queue = []
+            new_tags = []
             for tag, spans in tags.items():
                 for change in changes:
-                    widget.tag_queue.append(lambda x=widget, y=tag, z=change: x.tag_remove(y, f"1.0 + {z.start_byte}c", f"1.0 + {z.end_byte}c"))
-                for span in spans: widget.tag_queue.append(lambda x=widget,y=tag,z=span[:2]: x.tag_add(y, *z))
+                    new_tags.append(lambda x=widget, y=tag, z=change: x.tag_remove(y, f"1.0 + {z.start_byte}c", f"1.0 + {z.end_byte}c"))
+                for span in spans: new_tags.append(lambda x=widget,y=tag,z=span[:2]: x.tag_add(y, *z))
+            widget.tag_queue = [*new_tags, *widget.tag_queue]
             widget.changes = widget.changes[len(changes):]
         else:
             if debug_it:
@@ -658,11 +660,8 @@ def update_tags(widget: EventText):
         if debug_it: print("done", file=sys.__stdout__)
         if debug_it: print("".ljust(64,"-"), file=sys.__stdout__)
     
-    internal_update(widget)
-    
-    # if not [x for x in threading.enumerate() if x.name == "update_tags"]:
-        # if widget.changes and (time.time()-frame_time) < 0.05: internal_update(widget) # is it fast enough..
-        # else: threading.Thread(target=internal_update, args=[widget], name="update_tags").start()
+    if not [x for x in threading.enumerate() if x.name == "update_tags"]:
+        threading.Thread(target=internal_update, args=[widget], name="update_tags").start()
 
 
 def editor_modified(widget):
@@ -1016,8 +1015,7 @@ def watch_file():
         if destroy_list: dest = destroy_list.pop(); dest.destroy()
         if editor.edits and not editor.edit_modified(): editor.edits = False; update_title(editor)
         if editor.changes: update_tags(editor)
-        else:
-            while editor.tag_queue and (time.time()-frame_time) < 0.001: editor.tag_queue.pop(0)()
+        while editor.tag_queue and (time.time()-frame_time < 0.01): editor.tag_queue.pop(0)()
 
         if os.path.isfile(editor.path):
             mtime = os.path.getmtime(editor.path)
