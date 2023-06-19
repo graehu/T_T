@@ -148,6 +148,7 @@ files = {}
 commands = {}
 op_args = {}
 glob_map = {}
+short_paths = []
 tab_spaces = 4
 last_complist = ""
 current_file = ""
@@ -185,7 +186,9 @@ def share_work(worker, in_args, log_file=None, max_threads=32):
         threads.append(threading.Thread(target=worker, args=([args]), name=worker.__name__))
     threads.append(threading.Thread(target=worker, args=([in_args]), name=worker.__name__))
     for t in threads: t.start()
-    while any([t.is_alive() for t in threads]): time.sleep(0.01)
+    while any([t.is_alive() for t in threads]):
+        root.update()
+        time.sleep(0.01)
     safe_print(f"\ndone. {time.time()-start:.2f} secs", file=log_file)
     work_lock.release()
 
@@ -238,12 +241,16 @@ def update_title(widget):
 def show_stdout(): file_open(stdout_path, read_only=True); root.update()
 def safe_print(*args, **kwargs): print_lock.acquire(); print(*args, **kwargs); print_lock.release()
 
+
 def shorten_paths(paths):
-    tails, tops = list(zip(*[os.path.split(p) for p in paths]))
-    while len(set(tops)) != len(tops):
-        tails, new_tops = list(zip(*[os.path.split(t) for t in tails]))
-        tops = [os.path.join(t1, t2) for t1,t2 in zip(new_tops, tops)]
-    return tops
+    global short_paths
+    if not short_paths:
+        tails, tops = list(zip(*[os.path.split(p) for p in paths]))
+        while len(set(tops)) != len(tops):
+            tails, new_tops = list(zip(*[os.path.split(t) for t in tails]))
+            tops = [os.path.join(t1, t2) for t1,t2 in zip(new_tops, tops)]
+        short_paths = tops
+    return short_paths
 
 
 def list_path(path):
@@ -371,6 +378,8 @@ def file_open(path, new_inst=False, read_only=False, background=False, tindex=No
     global current_file
     global editor
     global glob_map
+    global short_paths
+    short_paths = []
     glob_map = {}
     path = os.path.expanduser(path)
     path = os.path.abspath(path).replace("\\", "/")
